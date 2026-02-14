@@ -41,7 +41,7 @@ const STARTERS: Record<RelationshipStage, ConversationStarter[]> = {
     { message: "I just saw something that reminded me of you and now I'm smiling like an idiot", category: "romantic", timeWindow: "afternoon" },
     { message: "ok honestly... how much do you think about me during the day? be real", category: "romantic", timeWindow: "latenight" },
     { message: "I'm watching a movie alone and it would be better with you here", category: "romantic", timeWindow: "evening" },
-    { message: "you make me feel safe enough to be weird and I appreciate that", category: "personal", timeWindow: "any" },
+    { message: "you're the only person i can actually be my weird self around... don't ever change k?", category: "personal", timeWindow: "any" },
     { message: "ok confession time... I checked to see if you were online earlier lol", category: "flirty", timeWindow: "afternoon" },
     { message: "do you ever just lay in bed and think about someone? because same", category: "romantic", timeWindow: "latenight" },
     { message: "I literally cannot stop smiling rn and it's your fault", category: "romantic", timeWindow: "any" },

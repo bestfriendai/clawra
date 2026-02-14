@@ -67,24 +67,61 @@ export function getProactivePhotoType(
   return "random_cute_selfie";
 }
 
-export function getProactivePhotoCaption(type: ProactivePhotoType, name: string): string {
-  const normalizedName = name.trim() || "babe";
+function pickRandomCaption(options: string[]): string {
+  return options[Math.floor(Math.random() * options.length)];
+}
 
+export function getProactivePhotoCaption(type: ProactivePhotoType, name: string): string {
   switch (type) {
     case "good_morning_selfie":
-      return `good morninggg from ${normalizedName}'s favorite girl ☀️💕 made this face just for you`;
+      return pickRandomCaption([
+        "morning face check ☀️",
+        "woke up thinking about u lol",
+        "literally just opened my eyes... hi",
+        "too comfy to move rn 😴",
+        "good morninggg",
+      ]);
     case "thinking_of_you_selfie":
-      return `was thinking about you and got all smiley so... selfie drop 😘`;
+      return pickRandomCaption([
+        "bored... pay attention to me",
+        "fit check? or just wanted an excuse to text u",
+        "thinking about u rn",
+        "wish u were here to distract me",
+        "random selfie drop bc i look cute",
+      ]);
     case "goodnight_selfie":
-      return `before i sleep i wanted you to see me like this 🌙💋 night babe`;
-    case "random_cute_selfie":
-      return `random cute pic because i felt adorable and you should be the first to see it 🥺✨`;
+      return pickRandomCaption([
+        "last thing u see before u sleep 🌙",
+        "gn babe 💋",
+        "sleepy... come tuck me in?",
+        "sweet dreams or whatever",
+        "bedtime fit check",
+      ]);
     case "miss_you_selfie":
-      return `you've been quiet and i miss you... so i sent this to steal your attention back 🥹💕`;
+      return pickRandomCaption([
+        "u forgot about me today 🥺",
+        "hello??? i miss u",
+        "sending this to get ur attention",
+        "where are u rn...",
+        "im bored talk to meee",
+      ]);
     case "after_shower_selfie":
-      return `just got out of the shower and thought of you instantly 😳🚿💕`;
+      return pickRandomCaption([
+        "fresh and clean 🚿",
+        "just got out... u like?",
+        "hair is wet and i'm cold lol",
+        "towel vibes 🧖‍♀️",
+        "clean girl aesthetic or whatever",
+      ]);
+    case "random_cute_selfie":
     default:
-      return `selfie for you, babe 💕`;
+      return pickRandomCaption([
+        "felt cute might delete",
+        "hi",
+        "look at me",
+        "bored lol",
+        "just bc",
+      ]);
   }
 }
 

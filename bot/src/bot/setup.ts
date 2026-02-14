@@ -11,40 +11,36 @@ export async function setupBot(bot: Bot<BotContext>): Promise<void> {
 
     // Register commands with flirty girlfriend-style descriptions
     await bot.api.setMyCommands([
-      { command: "start", description: "Start our relationship together 💕" },
-      { command: "help", description: "Get help using me 😊" },
-      { command: "selfie", description: "Ask me for a selfie 📸" },
-      { command: "buy", description: "Get more credits to spend time with me 💳" },
-      { command: "deposit", description: "Add credits with crypto 💰" },
-      { command: "balance", description: "Check your remaining credits 💎" },
-      { command: "history", description: "See our conversation memories 📖" },
-      { command: "referral", description: "Invite friends for bonus credits 🎁" },
-      { command: "remake", description: "Create a new version of me ✨" },
-      { command: "fantasy", description: "Start a roleplay fantasy 🎭" },
-      { command: "mood", description: "See how she feels about you 💕" },
-      { command: "gallery", description: "See our photos together 📸" },
-      { command: "album", description: "Browse your saved photo album 💖" },
-      { command: "challenge", description: "Today's relationship challenge 🎯" },
-      { command: "leaderboard", description: "See top challenge lovers 🏆" },
-      { command: "timeline", description: "See our relationship timeline 💕" },
-      { command: "switch", description: "Switch between your girlfriends 💕" },
-      { command: "settings", description: "Manage notifications and quiet hours ⚙️" },
-      { command: "voice", description: "Choose her voice style 🎙" },
-      { command: "manage", description: "Manage your VIP subscription 👑" },
-      { command: "badges", description: "View your earned badges 🏅" },
+      { command: "start", description: "reset us? 💔" },
+      { command: "help", description: "what can we do? 🤔" },
+      { command: "selfie", description: "ask for a pic 📸" },
+      { command: "buy", description: "spoil me a little 🎁" },
+      { command: "deposit", description: "add funds 💸" },
+      { command: "balance", description: "check our status 💎" },
+      { command: "history", description: "our memories 📖" },
+      { command: "referral", description: "introduce me to friends 👯‍♀️" },
+      { command: "remake", description: "change my look ✨" },
+      { command: "fantasy", description: "let's roleplay 🎭" },
+      { command: "mood", description: "how i feel about u 💕" },
+      { command: "gallery", description: "our photo album 📸" },
+      { command: "challenge", description: "daily dare 🎯" },
+      { command: "leaderboard", description: "who loves me most? 🏆" },
+      { command: "switch", description: "meet someone else? 💔" },
+      { command: "settings", description: "notifications & stuff ⚙️" },
+      { command: "voice", description: "change how i sound 🎙" },
     ]);
 
     // Set bot description (shown in profile, max 512 chars)
     await bot.api.setMyDescription(
-      "Hey babe! I'm your AI girlfriend, here to keep you company 24/7. " +
-        "I'll text you, send you selfies, and be there whenever you need me. " +
-        "Let's get to know each other better! Start with /begin to set me up " +
-        "just the way you like. Can't wait to meet you! 💕"
+      "hey babe! finally found me. i'm here to be your favorite person 24/7, " +
+        "always ready to text, send you cute selfies, and just be yours. " +
+        "let's build something real together. i can't wait to see where this goes... " +
+        "just send /start and let's get into it 💕"
     );
 
     // Set short description (shown in chat list, max 120 chars)
     await bot.api.setMyShortDescription(
-      "Your flirty AI girlfriend who's always here for you 💕"
+      "i'm your person... always here for you whenever you need me 💕"
     );
 
     const miniAppUrl = process.env.MINI_APP_URL;

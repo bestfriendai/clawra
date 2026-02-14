@@ -111,11 +111,28 @@ function createPostImageKeyboard(): InlineKeyboard {
     .text("💋 More", "selfie:dismiss");
 }
 
-async function simulateTyping(ctx: BotContext, responseLength: number): Promise<void> {
+async function simulateTyping(ctx: BotContext, responseLength: number, emotion: Mood = "casual"): Promise<void> {
+  // Emotional hesitation before typing starts
+  if (emotion === "emotional") {
+    await sleep(1500 + Math.random() * 2000);
+  }
+
   await ctx.replyWithChatAction("typing");
-  const msPerChar = 40 + Math.random() * 20;
-  const delay = Math.min(8000, Math.max(1500, responseLength * msPerChar));
-  const thinkingPause = Math.random() < 0.2 ? 2000 + Math.random() * 3000 : 0;
+
+  let msPerChar = 40 + Math.random() * 20;
+  
+  // Speed adjustments
+  if (emotion === "sexual" || emotion === "playful") {
+    msPerChar *= 0.7; // Excited/horny typing is faster
+  } else if (emotion === "emotional") {
+    msPerChar *= 1.3; // Sad/serious typing is slower
+  }
+
+  const delay = Math.min(8000, Math.max(800, responseLength * msPerChar));
+  
+  // Mid-typing pauses for "thinking"
+  const thinkingPause = Math.random() < 0.2 ? 1000 + Math.random() * 2000 : 0;
+  
   await sleep(delay + thinkingPause);
 }
 
@@ -123,7 +140,7 @@ async function simulateRealisticTyping(ctx: BotContext): Promise<void> {
   if (Math.random() < 0.15) {
     await ctx.replyWithChatAction("typing");
     await sleep(2000);
-    await sleep(1500);
+    await sleep(1500); // Stop typing briefly
     await ctx.replyWithChatAction("typing");
     await sleep(2000);
   } else {
@@ -139,15 +156,16 @@ function splitIntoBubbles(text: string): string[] {
   return [text];
 }
 
-async function sendAsMultipleBubbles(ctx: BotContext, response: string): Promise<void> {
-  if (response.length > 80 && Math.random() < 0.30) {
+async function sendAsMultipleBubbles(ctx: BotContext, response: string, emotion: Mood = "casual"): Promise<void> {
+  if (response.length > 80 && Math.random() < 0.45) {
     const parts = splitIntoBubbles(response);
     for (let i = 0; i < parts.length; i++) {
-      if (i > 0) await simulateTyping(ctx, parts[i].length);
+      if (i > 0) await simulateTyping(ctx, parts[i].length, emotion);
       await ctx.reply(parts[i]);
     }
     return;
   }
+  await simulateTyping(ctx, response.length, emotion);
   await ctx.reply(response);
 }
 

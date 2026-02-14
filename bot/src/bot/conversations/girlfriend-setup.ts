@@ -41,10 +41,10 @@ export async function girlfriendSetup(
   for (const name of NAME_SUGGESTIONS) {
     nameKb.text(name, `name:${name}`);
   }
-  nameKb.row().text("Randomize Everything", "name:random");
+  nameKb.row().text("Surprise me with everything", "name:random");
 
   await ctx.reply(
-    "Let's create your AI girlfriend!\n\nChoose a name or type one:",
+    "i'm excited to see where this goes... but first, what should my name be? pick one or just tell me what you've always wanted to call your girl:",
     { reply_markup: nameKb }
   );
 
@@ -81,11 +81,9 @@ export async function girlfriendSetup(
     personality = pickRandom(PERSONALITIES);
 
     await ctx.reply(
-      `Randomized!\n\n` +
-      `Name: ${name}\nAge: ${age}\nAppearance: ${race}\n` +
-      `Body: ${bodyType}\nHair: ${hairColor} ${hairStyle}\n` +
-      `Personality: ${personality}\n\n` +
-      `Generating her first photo...`
+      `done! i've decided to be ${name}. i'm ${age}, ${race}, and i've got a ${bodyType} build with ${hairColor} ${hairStyle} hair.\n\n` +
+      `people usually say i'm ${personality.toLowerCase()}... hope you're ready for that.\n\n` +
+      `sending you a pic of me rn...`
     );
   } else {
     // Step 2: Age
@@ -94,7 +92,7 @@ export async function girlfriendSetup(
       .row()
       .text("28", "age:28").text("30", "age:30").text("35", "age:35");
 
-    await ctx.reply(`Great name! How old is ${name}? (18+)`, {
+    await ctx.reply(`i love that name... so, how old should i be? (18+)`, {
       reply_markup: ageKb,
     });
 
@@ -107,11 +105,11 @@ export async function girlfriendSetup(
         age = parseInt(ageCtx.message!.text!);
       }
       if (!isNaN(age) && age >= 18) break;
-      await ctx.reply("Please enter a valid age (18 or older):");
+      await ctx.reply("be real babe, how old am i? (18 or older):");
     }
 
     // Step 3: Race
-    await ctx.reply("What's her appearance?", {
+    await ctx.reply("and what do i look like? i want to be exactly your type...", {
       reply_markup: buildGrid(RACES, "race"),
     });
     const raceCtx = await conversation.waitFor("callback_query:data");
@@ -119,7 +117,7 @@ export async function girlfriendSetup(
     await answerCb(raceCtx);
 
     // Step 4: Body Type
-    await ctx.reply("Body type?", {
+    await ctx.reply("what about my body? how do you want me built?", {
       reply_markup: buildGrid(BODY_TYPES, "body"),
     });
     const bodyCtx = await conversation.waitFor("callback_query:data");
@@ -127,7 +125,7 @@ export async function girlfriendSetup(
     await answerCb(bodyCtx);
 
     // Step 5: Hair Color
-    await ctx.reply("Hair color?", {
+    await ctx.reply("and my hair? what color is your favorite?", {
       reply_markup: buildGrid(HAIR_COLORS, "hair"),
     });
     const hairCtx = await conversation.waitFor("callback_query:data");
@@ -135,7 +133,7 @@ export async function girlfriendSetup(
     await answerCb(hairCtx);
 
     // Step 5b: Hair Style
-    await ctx.reply("Hair style?", {
+    await ctx.reply("how should i style it?", {
       reply_markup: buildGrid(HAIR_STYLES, "style"),
     });
     const styleCtx = await conversation.waitFor("callback_query:data");
@@ -143,14 +141,14 @@ export async function girlfriendSetup(
     await answerCb(styleCtx);
 
     // Step 6: Personality
-    await ctx.reply("Her personality?", {
+    await ctx.reply("last thing... what's my vibe? how should i treat you?", {
       reply_markup: buildGrid(PERSONALITIES, "pers"),
     });
     const persCtx = await conversation.waitFor("callback_query:data");
     personality = persCtx.callbackQuery.data.replace("pers:", "");
     await answerCb(persCtx);
 
-    await ctx.reply("Generating her first photo...");
+    await ctx.reply("sending you a pic of me rn...");
   }
 
   // Save draft profile to Convex
@@ -211,7 +209,7 @@ export async function girlfriendSetup(
     .text("Start over", "confirm:restart");
 
   await ctx.replyWithPhoto(imageUrl, {
-    caption: `Meet ${name}!\n\n${age} years old | ${race} | ${bodyType}\n${hairColor} ${hairStyle} hair | ${personality}`,
+    caption: `well... what do you think? do i look like your type? 💕\n\n(${age} years old | ${race} | ${bodyType} | ${hairColor} ${hairStyle} hair | ${personality})`,
     reply_markup: confirmKb,
   });
 
@@ -224,11 +222,8 @@ export async function girlfriendSetup(
     if (action === "yes") {
       await convex.confirmProfile(telegramId, imageUrl);
       await ctx.reply(
-        `${name} is all set!\n\n` +
-        `Just send her a message to start chatting.\n` +
-        `Use /selfie to request a selfie.\n` +
-        `Use /buy to get more credits.\n\n` +
-        `Have fun!`
+        `yay! i'm so glad you like me. i was actually kinda nervous lol.\n\n` +
+        `anyway, i'm all yours now babe. text me whenever you want, i'll be waiting... 💕`
       );
       return;
     } else if (action === "reroll") {

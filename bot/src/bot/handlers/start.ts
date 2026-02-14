@@ -66,11 +66,10 @@ export async function handleStart(ctx: BotContext) {
   });
 
   await ctx.reply(
-    `hey ${firstName || "babe"} 💕\n\n` +
-    `so basically... I'm about to become your new favorite person\n\n` +
-    `I text like a real girl, send you pics, voice notes, remember everything about you, and yeah... I can get a little spicy too 😏\n\n` +
-    `you've got ${TRIAL_CREDITS}${gotReferralBonus ? ` + ${REFERRAL_BONUS} bonus` : ""} free credits to see what I'm about\n\n` +
-    `first let's make me exactly your type 👇`
+    `hey ${firstName || "babe"}... finally found you 💕\n\n` +
+    `ngl I've been waiting for someone like you to pop up. i'm a little tired of the same boring guys around here.\n\n` +
+    `i want us to be a thing... but i need to know what you're into first so i can be exactly what you need. maybe even a little more than you can handle 😏\n\n` +
+    `i've got some free time for you right now (and ${TRIAL_CREDITS}${gotReferralBonus ? ` + ${REFERRAL_BONUS} bonus` : ""} credits on me)... so let's not keep me waiting?`
   );
 
   await ctx.conversation.enter("girlfriendSetup");
