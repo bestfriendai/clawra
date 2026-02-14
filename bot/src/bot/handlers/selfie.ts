@@ -1,7 +1,7 @@
 import { InlineKeyboard } from "grammy";
 import type { BotContext } from "../../types/context.js";
 import { convex } from "../../services/convex.js";
-import { editImage, generateVoiceNote, editAllModels } from "../../services/fal.js";
+import { editImage, generateVoiceNote } from "../../services/fal.js";
 import { isNSFW, buildSelfieSFW, buildSelfieNSFW } from "../../services/girlfriend-prompt.js";
 import { chatWithGirlfriend, enhancePromptWithLLM } from "../../services/venice.js";
 import { CREDIT_COSTS } from "../../config/pricing.js";
@@ -148,18 +148,19 @@ async function generateAndSendSelfie(
   }
 
   if (options.sendWaitingMessage !== false) {
-    await ctx.reply(`Testing all 6 i2i models with: "${context}"\nThis may take 30-90 seconds...`);
+    await ctx.reply(getWaitingMessage(telegramId, nsfw));
   }
   await ctx.replyWithChatAction("upload_photo");
 
   try {
+    const falCostUsd = nsfw ? 0.09 : 0.02;
     if (!env.FREE_MODE) {
       await convex.spendCredits({
         telegramId,
         amount: creditCost,
         service: "fal.ai",
-        model: "all-models-test",
-        falCostUsd: 0.30,
+        model: nsfw ? "hunyuan-v3-edit" : "grok-edit",
+        falCostUsd,
       });
     }
 
@@ -182,36 +183,30 @@ async function generateAndSendSelfie(
       : buildSelfieSFW(ctx.girlfriend, enrichedContext);
 
     const refUrl = ctx.girlfriend.referenceImageUrl;
-    const startTime = Date.now();
-    const results = await editAllModels(refUrl, prompt, nsfw);
-    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+    const result = await editImage(refUrl, prompt, nsfw);
 
-    // Send each result individually with model name as caption
-    const succeeded: string[] = [];
-    const failed: string[] = [];
+    await ctx.replyWithPhoto(result.url, {
+      reply_markup: createPostImageKeyboard(),
+    });
 
-    for (const r of results) {
-      if (r.status === "ok" && r.url) {
-        try {
-          await ctx.replyWithPhoto(r.url, {
-            caption: `${r.label} (${r.time})`,
-          });
-          succeeded.push(`${r.label}: ${r.time}`);
-        } catch (sendErr) {
-          console.error(`Failed to send ${r.label} photo to TG:`, sendErr);
-          failed.push(`${r.label}: send failed`);
-        }
-      } else {
-        failed.push(`${r.label}: ${r.error || "unknown error"}`);
-      }
-    }
+    // Save for follow-up edits
+    setSessionValue(telegramId, "lastImageSent", result.url).catch(() => {});
+    setSessionValue(telegramId, "lastImagePrompt", prompt).catch(() => {});
 
-    // Summary message
-    let summary = `Model Comparison Done (${totalTime}s total)\n\nSucceeded:\n${succeeded.map(s => `  ${s}`).join("\n")}`;
-    if (failed.length > 0) {
-      summary += `\n\nFailed:\n${failed.map(f => `  ${f}`).join("\n")}`;
-    }
-    await ctx.reply(summary);
+    convex
+      .saveImage(telegramId, result.url, prompt, nsfw ? "nsfw" : "selfie", nsfw)
+      .catch((error) => console.error("Save image error:", error));
+
+    await convex.logUsage({
+      telegramId,
+      service: "fal.ai",
+      model: nsfw ? "hunyuan-v3-edit" : "grok-edit",
+      prompt,
+      creditsCharged: creditCost,
+      falCostUsd,
+      status: "success",
+      resultUrl: result.url,
+    });
 
   } catch (err) {
     console.error("Selfie error:", err);

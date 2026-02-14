@@ -11,22 +11,22 @@ export type ProactivePhotoType =
 
 type TimeOfDay = "morning" | "afternoon" | "evening" | "night" | "other";
 
-const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
-const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000;
 const SELFIE_COST = 5;
 
 const STAGE_DAILY_LIMIT: Record<RelationshipStage, number> = {
-  new: 1,
-  comfortable: 2,
-  intimate: 3,
-  obsessed: 4,
+  new: 0,
+  comfortable: 1,
+  intimate: 1,
+  obsessed: 2,
 };
 
 const STAGE_WEIGHT: Record<RelationshipStage, number> = {
-  new: 0.12,
-  comfortable: 0.18,
-  intimate: 0.24,
-  obsessed: 0.32,
+  new: 0,
+  comfortable: 0.05,
+  intimate: 0.08,
+  obsessed: 0.12,
 };
 
 const STAGE_ORDER: Record<RelationshipStage, number> = {
@@ -165,7 +165,7 @@ export async function shouldSendProactivePhoto(
     .reduce((max: number, createdAt: number) => Math.max(max, createdAt), 0);
 
   const effectiveLastPhotoAt = lastPhotoSentAt || latestPhotoAt;
-  if (effectiveLastPhotoAt > 0 && now - effectiveLastPhotoAt < THREE_HOURS_MS) {
+  if (effectiveLastPhotoAt > 0 && now - effectiveLastPhotoAt < SIX_HOURS_MS) {
     return { shouldSend: false };
   }
 
@@ -174,26 +174,12 @@ export async function shouldSendProactivePhoto(
     .map((message: any) => (typeof message.createdAt === "number" ? message.createdAt : 0))
     .reduce((max: number, createdAt: number) => Math.max(max, createdAt), 0);
 
-  if (latestUserMessageAt > 0 && now - latestUserMessageAt >= FOUR_HOURS_MS) {
+  // Only send a miss-you selfie after 8+ hours of silence (not 4)
+  if (latestUserMessageAt > 0 && now - latestUserMessageAt >= EIGHT_HOURS_MS && stageAtLeast(stage, "comfortable")) {
     return { shouldSend: true, photoType: "miss_you_selfie" };
   }
 
-  if (hour >= 6 && hour <= 9) {
-    return { shouldSend: true, photoType: "good_morning_selfie" };
-  }
-
-  if (hour >= 12 && hour <= 15) {
-    return { shouldSend: true, photoType: "thinking_of_you_selfie" };
-  }
-
-  if (hour >= 21 && hour <= 23) {
-    return { shouldSend: true, photoType: "goodnight_selfie" };
-  }
-
-  if (hour >= 18 && hour <= 21 && stageAtLeast(stage, "intimate") && Math.random() < 0.35) {
-    return { shouldSend: true, photoType: "after_shower_selfie" };
-  }
-
+  // Random chance based on relationship stage — no more deterministic time-window sends
   if (Math.random() < STAGE_WEIGHT[stage]) {
     return {
       shouldSend: true,

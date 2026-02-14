@@ -69,15 +69,15 @@ function trackWithEviction<V>(map: Map<number, V>, key: number, value: V): void 
 
 type Mood = "playful" | "romantic" | "sexual" | "casual" | "emotional";
 
-const SELFIE_CUE_PATTERNS = [
-  /let me send you/i,
-  /want to see/i,
-  /sending you (a )?(pic|photo|snap)/i,
-  /hold on let me take/i,
-  /check your phone/i,
-  /lemme send (you )?(something|a pic|a photo)/i,
-  /i'?ll send (you )?(a )?(pic|photo|snap)/i,
-];
+// Auto-trigger selfie cue patterns — disabled to stop selfie spam.
+// Kept for reference in case we want to re-enable with stricter logic.
+// const SELFIE_CUE_PATTERNS = [
+//   /let me send you/i,
+//   /sending you (a )?(pic|photo|snap)/i,
+//   /hold on let me take/i,
+//   /lemme send (you )?(something|a pic|a photo)/i,
+//   /i'?ll send (you )?(a )?(pic|photo|snap)/i,
+// ];
 
 const PRE_IMAGE_MESSAGES = [
   "hold on",
@@ -274,20 +274,11 @@ function trackMood(telegramId: number, userMessage: string, replyText: string): 
   return updated;
 }
 
-function shouldAutoTriggerSelfie(replyText: string, moods: Mood[]): boolean {
-  const hasSelfieCue = SELFIE_CUE_PATTERNS.some((pattern) => pattern.test(replyText));
-  if (!hasSelfieCue) return false;
-
-  // Higher chance when mood is consistently sexual or romantic
-  const recentMoods = moods.slice(-3);
-  const sexualStreak = recentMoods.length >= 3 && recentMoods.every((mood) => mood === "sexual");
-  const romanticStreak = recentMoods.length >= 2 && recentMoods.every((mood) => mood === "romantic" || mood === "sexual");
-
-  let chance = 0.35;
-  if (sexualStreak) chance = 0.85;
-  else if (romanticStreak) chance = 0.55;
-
-  return Math.random() < chance;
+function shouldAutoTriggerSelfie(_replyText: string, _moods: Mood[]): boolean {
+  // Disabled — the AI's own reply text was matching cue patterns and
+  // creating a feedback loop that spammed selfies on almost every message.
+  // Selfies should only be sent when the USER explicitly asks for one.
+  return false;
 }
 
 function inferSavedImageCategory(input: string, isNsfw: boolean): string {
