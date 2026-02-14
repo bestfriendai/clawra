@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+*.log
+
+# Bot specific
+bot/node_modules/
+bot/dist/
+bot/.env
+bot/convex/_generated/
