@@ -76,14 +76,14 @@ export default defineSchema({
     .index("by_paymentRef", ["paymentRef"]),
 
   subscriptions: defineTable({
-    telegramId: v.float64(),
+    telegramId: v.number(),
     stripeCustomerId: v.string(),
     stripeSubscriptionId: v.string(),
     status: v.string(),
-    currentPeriodEnd: v.float64(),
+    currentPeriodEnd: v.number(),
     plan: v.string(),
-    createdAt: v.float64(),
-    updatedAt: v.float64(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
   })
     .index("by_telegramId", ["telegramId"])
     .index("by_stripeSubscriptionId", ["stripeSubscriptionId"]),
@@ -168,45 +168,45 @@ export default defineSchema({
     .index("by_botToken", ["botToken"]),
 
   challengeCompletions: defineTable({
-    telegramId: v.float64(),
+    telegramId: v.number(),
     challengeId: v.string(),
-    completedAt: v.float64(),
-    creditsAwarded: v.float64(),
+    completedAt: v.number(),
+    creditsAwarded: v.number(),
   })
     .index("by_user", ["telegramId"])
     .index("by_challenge_date", ["challengeId", "completedAt"]),
 
   achievements: defineTable({
-    telegramId: v.float64(),
+    telegramId: v.number(),
     badgeId: v.string(),
-    earnedAt: v.float64(),
+    earnedAt: v.number(),
     badgeName: v.string(),
     badgeEmoji: v.string(),
   }).index("by_user", ["telegramId"]),
 
   analyticsEvents: defineTable({
-    telegramId: v.float64(),
+    telegramId: v.number(),
     event: v.string(),
     metadata: v.optional(v.string()),
-    timestamp: v.float64(),
+    timestamp: v.number(),
   })
     .index("by_event", ["event", "timestamp"])
     .index("by_user", ["telegramId", "timestamp"]),
 
   relationshipEvents: defineTable({
-    telegramId: v.float64(),
+    telegramId: v.number(),
     eventType: v.string(),
-    eventDate: v.float64(),
+    eventDate: v.number(),
     description: v.string(),
     isRecurring: v.boolean(),
   }).index("by_user", ["telegramId"]),
 
   referrals: defineTable({
-    referrerTelegramId: v.float64(),
-    referredTelegramId: v.float64(),
-    creditsAwarded: v.float64(),
+    referrerTelegramId: v.number(),
+    referredTelegramId: v.number(),
+    creditsAwarded: v.number(),
     status: v.union(v.literal("pending"), v.literal("completed")),
-    createdAt: v.float64(),
+    createdAt: v.number(),
   })
     .index("by_referrer", ["referrerTelegramId"])
     .index("by_referred", ["referredTelegramId"]),
@@ -219,13 +219,13 @@ export default defineSchema({
   }).index("by_user_key", ["telegramId", "key"]),
 
   savedImages: defineTable({
-    telegramId: v.float64(),
+    telegramId: v.number(),
     imageUrl: v.string(),
     prompt: v.optional(v.string()),
     category: v.string(),
     isFavorite: v.boolean(),
     isNsfw: v.boolean(),
-    createdAt: v.float64(),
+    createdAt: v.number(),
   })
     .index("by_user", ["telegramId", "createdAt"])
     .index("by_user_category", ["telegramId", "category"])

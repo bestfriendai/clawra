@@ -20,17 +20,17 @@ import {
 } from "./smart-timing.js";
 import { setSessionValue } from "./session-store.js";
 
-const CHECK_INTERVAL_MS = 60 * 60 * 1000;
-const MAX_NOTIFICATIONS_PER_DAY = 3;
-const AFTERNOON_SEND_CHANCE = 0.4;
+const CHECK_INTERVAL_MS = 45 * 60 * 1000; // Check every 45 mins instead of 60
+const MAX_NOTIFICATIONS_PER_DAY = 4; // Slightly more to maintain presence
+const AFTERNOON_SEND_CHANCE = 0.45;
 
 type ProactiveMessageType = "morning" | "goodnight" | "thinking_of_you";
 
 const VOICE_CHANCE_BY_STAGE: Record<RelationshipStage, number> = {
   new: 0,
-  comfortable: 0.03,
-  intimate: 0.07,
-  obsessed: 0.12,
+  comfortable: 0.05,
+  intimate: 0.10,
+  obsessed: 0.18,
 };
 
 function shouldSendVoice(stage: RelationshipStage): boolean {

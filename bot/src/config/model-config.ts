@@ -102,17 +102,19 @@ export const QUALITY_CREDIT_COSTS = {
 } as const;
 
 const ZIMAGE_NEGATIVE_BASE =
-  "AI generated, plastic skin, smooth skin, airbrushed, illustration, cartoon, 3D render, uncanny valley, wax figure, mannequin, doll-like, overly symmetrical face, blurry, distorted hands, extra fingers, deformed";
+  "AI generated, plastic skin, smooth skin, airbrushed, illustration, cartoon, 3D render, uncanny valley, wax figure, mannequin, doll-like, overly symmetrical face, blurry, distorted hands, extra fingers, deformed, professional photoshoot, studio lighting setup, ring light catchlights";
 
 const ZIMAGE_NEGATIVE_EXTRAS = [
-  "watermark, text overlay, logo, signature",
-  "overly posed, magazine cover, professional studio lighting",
-  "digital painting, CGI, concept art, anime",
-  "oversaturated, HDR look, overprocessed, heavy editing",
-  "perfect skin, poreless, beauty filter, FaceTune",
-  "stock photo, generic model pose, catalog image",
-  "split lighting, rim light, dramatic shadows",
-  "bokeh balls, lens flare, light leak overlay",
+  "watermark, text overlay, logo, signature, copyright",
+  "overly posed, magazine cover, professional studio lighting, beauty dish",
+  "digital painting, CGI, concept art, anime, Pixar, Unreal Engine",
+  "oversaturated, HDR look, overprocessed, heavy editing, orange and teal grading",
+  "perfect skin, poreless, beauty filter, FaceTune, retouched, photoshopped",
+  "stock photo, generic model pose, catalog image, advertisement, billboard",
+  "split lighting, rim light, dramatic shadows, chiaroscuro, Rembrandt lighting",
+  "bokeh balls, lens flare, light leak overlay, sun flare effect",
+  "unrealistic proportions, bolt-on implants, impossibly thin waist, exaggerated curves",
+  "fashion runway, editorial photography, high fashion, glamour shot",
 ];
 
 export const ZIMAGE_NEGATIVE_PROMPT = ZIMAGE_NEGATIVE_BASE;
@@ -123,8 +125,8 @@ export function getZImageNegativePrompt(): string {
 }
 
 export const ZIMAGE_BASE_DEFAULTS = {
-  num_inference_steps: 45,
-  guidance_scale: 4.5,
+  num_inference_steps: 50,
+  guidance_scale: 5.0,
   enable_safety_checker: false,
   num_images: 1,
   image_size: { width: 768, height: 1344 },

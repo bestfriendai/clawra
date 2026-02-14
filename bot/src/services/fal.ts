@@ -252,7 +252,26 @@ export async function editImageSFW(
   return images[0];
 }
 
-const REALISM_NEGATIVE = "AI generated, CGI, 3D render, illustration, cartoon, anime, plastic skin, poreless, airbrushed, wax figure, mannequin, doll-like, uncanny valley, overly symmetrical face, dead eyes, beauty filter, facetune, smooth texture, HDR, oversaturated, overprocessed, perfect makeup, extra fingers, mutated hands, deformed face, watermark, text, logo";
+const REALISM_NEGATIVE = [
+  // Anti-AI markers
+  "AI generated, CGI, 3D render, illustration, cartoon, anime, digital painting, concept art",
+  // Anti-plastic look
+  "plastic skin, poreless, airbrushed, wax figure, mannequin, doll-like, uncanny valley, silicone",
+  // Anti-perfection (key for avoiding slop)
+  "overly symmetrical face, dead eyes, beauty filter, facetune, smooth texture, perfect skin, flawless complexion",
+  // Anti-studio (prevents professional photo look)
+  "professional photoshoot, studio backdrop, ring light, softbox, beauty dish, fashion photography, catalog model",
+  // Anti-overprocessing
+  "HDR, oversaturated, overprocessed, perfect makeup, heavy retouching, photoshopped, glamour lighting",
+  // Anti-deformity
+  "extra fingers, mutated hands, deformed face, cross-eyed, extra limbs, merged fingers",
+  // Anti-overlay
+  "watermark, text, logo, border, collage, split image, signature",
+  // Anti-porn production value (for NSFW)
+  "professional pornography, studio porn, production lighting, multiple camera angles, fake moaning expression",
+  // Anti-unrealistic body
+  "unrealistic proportions, impossibly thin waist, bolt-on breasts, silicon implant look, exaggerated features",
+].join(", ");
 
 export async function editImageNSFW(
   referenceImageUrl: string,
@@ -262,11 +281,13 @@ export async function editImageNSFW(
   const primaryEditModel = getNSFWEditModelId();
 
   const hunyuanPrompt = [
-    "Photo of the exact same person from the reference image.",
+    "Photo of the exact same person from the reference image. Same face, same body type, same features.",
     safePrompt,
-    "Real amateur photo, natural imperfect lighting, visible skin texture and pores.",
-    "NOT AI generated. Realistic skin with natural blemishes, slight facial asymmetry, real hair texture.",
-    "Natural body proportions matching the reference exactly.",
+    "Real amateur photo taken on a phone camera. Natural imperfect lighting, visible skin texture and pores.",
+    "NOT AI generated. Realistic skin with natural blemishes, slight facial asymmetry, real hair texture with flyaway strands.",
+    "Natural body proportions matching the reference exactly. No enhancement, no surgery look.",
+    "This looks like a real intimate photo a girlfriend sent via iMessage, NOT professional content.",
+    "Casual one-handed phone framing, slightly imperfect angle, whatever lighting was in the room.",
   ].join(" ");
 
   try {
