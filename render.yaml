@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: aigirl-bot
+    runtime: docker
+    dockerfilePath: ./bot/Dockerfile
+    dockerContext: ./bot
+    repo: https://github.com/bestfriendai/AIGIRL.git
+    branch: main
+    region: oregon
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: FREE_MODE
+        value: "true"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: FAL_KEY
+        sync: false
+      - key: VENICE_API_KEY
+        sync: false
+      - key: CONVEX_URL
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false
+      - key: ADMIN_TELEGRAM_IDS
+        sync: false
+      - key: IMAGE_QUALITY
+        value: "base"
+      - key: FALLBACK_STRATEGY
+        value: "full"
