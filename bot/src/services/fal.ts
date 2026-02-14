@@ -495,9 +495,10 @@ const ALL_I2I_MODELS = [
     id: "qwen-max",
     label: "Qwen Max",
     run: async (refUrl: string, prompt: string, _nsfw: boolean) => {
+      const qwenPrompt = `Keep this person from image 1 identical. ${prompt}`.slice(0, 800);
       const result = await fal.subscribe(MODEL_IDS["qwen-image-max"], {
         input: {
-          prompt: `Keep this person from image 1 identical. ${prompt}`,
+          prompt: qwenPrompt,
           image_urls: [refUrl],
           negative_prompt:
             "AI generated, plastic skin, airbrushed, cartoon, extra fingers, deformed",
