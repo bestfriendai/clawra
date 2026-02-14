@@ -334,14 +334,16 @@ export async function editImageNSFW(
   const safePrompt = sanitizeImagePrompt(prompt);
   const primaryEditModel = getNSFWEditModelId();
 
+  // HunyuanImage V3 Edit does NOT support negative_prompt — bake anti-AI into prompt
   const hunyuanPrompt = [
-    "Photo of the exact same person from the reference image. Same face, same body type, same features.",
+    "Photo of the exact same person from the reference image. Same face, same bone structure, same skin tone, same body type.",
     safePrompt,
     "Real amateur photo taken on a phone camera. Natural imperfect lighting, visible skin texture and pores.",
-    "NOT AI generated. Realistic skin with natural blemishes, slight facial asymmetry, real hair texture with flyaway strands.",
-    "Natural body proportions matching the reference exactly. No enhancement, no surgery look.",
-    "This looks like a real intimate photo a girlfriend sent via iMessage, NOT professional content.",
-    "Casual one-handed phone framing, slightly imperfect angle, whatever lighting was in the room.",
+    "NOT AI generated. NOT a professional photoshoot. NOT studio pornography.",
+    "Realistic skin with natural blemishes, slight facial asymmetry, real hair texture with flyaway strands.",
+    "Natural body proportions matching the reference exactly. No enhancement, no surgery look, no impossible proportions.",
+    "This looks like a real intimate photo a girlfriend sent via iMessage, casual one-handed phone framing.",
+    "Avoid: plastic skin, airbrushed, poreless, wax figure, mannequin, CGI, cartoon, perfect symmetry, studio lighting.",
   ].join(" ");
 
   try {
@@ -350,9 +352,9 @@ export async function editImageNSFW(
         fal.subscribe(primaryEditModel, {
           input: {
             prompt: hunyuanPrompt,
-            negative_prompt: REALISM_NEGATIVE,
             image_urls: [referenceImageUrl],
-            guidance_scale: 5.0,
+            guidance_scale: 3.5,
+            num_inference_steps: 28,
             enable_safety_checker: false,
             output_format: "jpeg",
             image_size: { width: 720, height: 1280 },
@@ -500,11 +502,13 @@ const ALL_I2I_MODELS = [
     id: "kling-v3",
     label: "Kling V3",
     run: async (refUrl: string, prompt: string, _nsfw: boolean) => {
+      // Kling V3 i2i: no negative_prompt, supports resolution "1K"/"2K", aspect_ratio
       const result = await fal.subscribe(MODEL_IDS["kling-v3-i2i"], {
         input: {
           prompt,
           image_url: refUrl,
           aspect_ratio: "9:16",
+          resolution: "1K",
           output_format: "jpeg",
         },
       });
@@ -550,6 +554,8 @@ const ALL_I2I_MODELS = [
     id: "hunyuan-v3",
     label: "Hunyuan V3",
     run: async (refUrl: string, prompt: string, _nsfw: boolean) => {
+      // HunyuanImage V3 Edit: guidance_scale 1-20 (default 3.5), steps 1-50 (default 28)
+      // Does NOT support negative_prompt on edit endpoint
       const identityPrompt =
         "Keep this person's exact face, features, skin tone, hair, and body unchanged. " + prompt;
       const result = await fal.subscribe(MODEL_IDS["hunyuan-v3-edit"], {
@@ -557,6 +563,7 @@ const ALL_I2I_MODELS = [
           prompt: identityPrompt,
           image_urls: [refUrl],
           guidance_scale: 3.5,
+          num_inference_steps: 28,
           enable_safety_checker: false,
           output_format: "jpeg",
           image_size: { width: 720, height: 1280 },
@@ -648,7 +655,8 @@ export async function generateVideoFromImage(
   prompt: string,
   duration: number = 6
 ): Promise<FalVideoResult> {
-  const safePrompt = sanitizeImagePrompt(prompt);
+  // Grok Video: duration 1-15s, prompt max 4096 chars, resolution 480p/720p
+  const safePrompt = sanitizeImagePrompt(prompt).slice(0, 4096);
   console.log(`[video] Starting generation: prompt="${safePrompt.slice(0, 80)}...", image="${imageUrl.slice(0, 60)}..."`);
 
   const result = await withRetry(
@@ -657,9 +665,9 @@ export async function generateVideoFromImage(
         input: {
           prompt: safePrompt,
           image_url: imageUrl,
-          duration: Math.min(duration, 10),
+          duration: Math.min(duration, 15),
           resolution: "720p",
-          aspect_ratio: "auto",
+          aspect_ratio: "9:16",
         },
       }),
     "generate video"
@@ -675,20 +683,31 @@ export async function generateVideoFromImage(
 
 export async function generateVideoWAN(
   imageUrl: string,
-  prompt: string
+  prompt: string,
+  duration: 5 | 10 = 5
 ): Promise<{ url: string }> {
-  const safePrompt = sanitizeImagePrompt(prompt);
+  const safePrompt = sanitizeImagePrompt(prompt).slice(0, 800);
   const modelId: string = MODEL_IDS["wan-25-i2v"];
+
+  // WAN 2.5 supports negative_prompt (max 500 chars) — use for anti-AI
+  const negativePrompt = [
+    "AI generated, CGI, 3D render, cartoon, anime, illustration",
+    "morphing face, warping background, melting objects, flickering",
+    "extra fingers, deformed hands, unnatural movement, robotic motion",
+    "professional studio, fashion shoot, stock footage",
+  ].join(", ").slice(0, 500);
+
   const result = await withRetry(
     () =>
       fal.subscribe(modelId, {
         input: {
           image_url: imageUrl,
           prompt: safePrompt,
-          num_frames: 81,
-          fps: 16,
-          resolution: "480p",
+          negative_prompt: negativePrompt,
+          duration,
+          resolution: "720p",
           enable_safety_checker: false,
+          enable_prompt_expansion: false,
         },
       }),
     "generate wan video"

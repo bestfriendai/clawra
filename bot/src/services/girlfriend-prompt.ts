@@ -1111,14 +1111,16 @@ export async function buildVideoPrompt(profile: GirlfriendProfile, context: stri
     scenePrefix,
     `${action.description}.`,
     `Shot on a phone held by someone watching her. ${cameraMotion}.`,
-    "The camera has natural handheld micro-shake and breathing-level drift, not perfect stabilization.",
-    "Her hair moves naturally with momentum and settles with realistic weight.",
-    `Her clothing fabric follows realistic motion physics: ${clothingPhysics}.`,
-    `Her body movement is body-type accurate: ${bodyPhysics}.`,
-    "Consistent lighting throughout the clip with no flickering or shifting shadows.",
-    "Her face stays consistent frame-to-frame with no morphing or warping.",
-    "Background stays stable with no melting or disappearing objects.",
-    "Portrait orientation, 24fps, natural motion blur on fast movements.",
+    "Natural handheld micro-shake and breathing-level drift, not stabilized.",
+    `Body movement: ${bodyPhysics}.`,
+    `Fabric physics: ${clothingPhysics}.`,
+    "Her hair sways with realistic weight and settles naturally.",
+    // Anti-artifact markers (critical for video quality)
+    "IMPORTANT: Her face must remain identical in every frame — same features, same bone structure, no morphing.",
+    "IMPORTANT: Background objects stay completely frozen and static — walls, furniture, decorations do not move or change.",
+    "Consistent lighting throughout with no flickering or shadow shifts.",
+    "Smooth natural motion with realistic momentum — no teleporting, no sudden speed changes.",
+    "Portrait orientation 9:16, cinematic natural motion blur on fast movements only.",
   ].filter(Boolean).join(" ");
 }
 

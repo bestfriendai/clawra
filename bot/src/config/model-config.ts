@@ -124,13 +124,16 @@ export function getZImageNegativePrompt(): string {
   return `${ZIMAGE_NEGATIVE_BASE}, ${extras.join(", ")}`;
 }
 
+// Z-Image Base: steps 1-28 (28=max quality), guidance_scale default 4.0
+// acceleration "none" disables distillation for highest quality output
 export const ZIMAGE_BASE_DEFAULTS = {
-  num_inference_steps: 50,
-  guidance_scale: 5.0,
+  num_inference_steps: 28,
+  guidance_scale: 4.0,
   enable_safety_checker: false,
   num_images: 1,
   image_size: { width: 768, height: 1344 },
-  output_format: "png",
+  output_format: "jpeg",
+  acceleration: "none",
 } as const;
 
 // Turbo: negative_prompt and guidance_scale are ignored by the distilled model
