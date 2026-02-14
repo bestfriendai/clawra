@@ -11,6 +11,7 @@ export interface SessionData {
     bodyType?: string;
     hairColor?: string;
     hairStyle?: string;
+    eyeColor?: string;
     personality?: string;
   };
   fantasyMode?: string;
@@ -35,6 +36,7 @@ export interface GirlfriendProfile {
   bodyType: string;
   hairColor: string;
   hairStyle: string;
+  eyeColor?: string;
   personality: string;
   backstory?: string;
   referenceImageUrl?: string;

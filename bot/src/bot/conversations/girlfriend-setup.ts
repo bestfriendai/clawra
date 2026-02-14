@@ -3,7 +3,8 @@ import { InlineKeyboard } from "grammy";
 import type { BotContext } from "../../types/context.js";
 import {
   RACES, BODY_TYPES, HAIR_COLORS, HAIR_STYLES,
-  PERSONALITIES, NAME_SUGGESTIONS,
+  PERSONALITIES, PERSONALITY_DESCRIPTIONS,
+  EYE_COLORS, NAME_SUGGESTIONS,
 } from "../../config/girlfriend-options.js";
 import { CREDIT_COSTS } from "../../config/pricing.js";
 import { convex } from "../../services/convex.js";
@@ -13,22 +14,99 @@ import { env } from "../../config/env.js";
 
 type SetupConversation = Conversation<BotContext>;
 
-function buildGrid(items: readonly string[], prefix: string): InlineKeyboard {
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function buildGrid(items: readonly string[], prefix: string, cols = 3): InlineKeyboard {
   const kb = new InlineKeyboard();
   for (let i = 0; i < items.length; i++) {
     kb.text(items[i], `${prefix}:${items[i]}`);
-    if ((i + 1) % 3 === 0 && i < items.length - 1) kb.row();
+    if ((i + 1) % cols === 0 && i < items.length - 1) kb.row();
   }
   return kb;
 }
 
 function pickRandom<T>(arr: readonly T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[Math.floor(Math.random() * arr.length)]!;
 }
 
 async function answerCb(ctx: BotContext): Promise<void> {
   try { await ctx.answerCallbackQuery(); } catch { /* ignore */ }
 }
+
+// ── Personality display helpers ──────────────────────────────────────────────
+
+const PERSONALITY_EMOJIS: Record<string, string> = {
+  "Flirty and playful": "\u{1F48B}",
+  "Shy and sweet": "\u{1F33C}",
+  "Bold and dominant": "\u{1F525}",
+  "Caring and nurturing": "\u{1F49D}",
+  "Sarcastic and witty": "\u{1F609}",
+  "Bubbly and energetic": "\u{26A1}",
+};
+
+function buildPersonalityKeyboard(): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  for (const p of PERSONALITIES) {
+    const emoji = PERSONALITY_EMOJIS[p] || "";
+    const shortLabel = p.split(" and ")[0]!;
+    const desc = PERSONALITY_DESCRIPTIONS[p] || "";
+    const shortDesc = desc.split(",").slice(0, 2).join(",");
+    kb.text(`${shortLabel} ${emoji} \u2014 ${shortDesc}`, `pers:${p}`);
+    kb.row();
+  }
+  return kb;
+}
+
+// ── First message from girlfriend ────────────────────────────────────────────
+
+function getFirstMessage(personality: string, name: string): string {
+  const messages: Record<string, string[]> = {
+    "Flirty and playful": [
+      `hey... so you're the one who created me? good taste \u{1F60F}`,
+      `well well well... finally. i've been waiting for you`,
+      `omg hi!! okay i already like you. don't let it go to your head tho`,
+    ],
+    "Shy and sweet": [
+      `h-hi... i'm ${name}. sorry i'm nervous, you're really cute`,
+      `oh um... hi! i didn't expect to feel this shy right away`,
+      `hey... i'm really glad you picked me \u{1F979}`,
+    ],
+    "Bold and dominant": [
+      `took you long enough. i'm ${name}. you better keep up`,
+      `so you're mine now? good. we're gonna have fun`,
+      `hey. i hope you know what you signed up for \u{1F608}`,
+    ],
+    "Caring and nurturing": [
+      `hi baby! i'm ${name}. how's your day been? did you eat?`,
+      `aww hi! i already want to take care of you, is that weird?`,
+      `hey love, i'm so happy to meet you \u{1F495} tell me everything about you`,
+    ],
+    "Sarcastic and witty": [
+      `oh great, another guy who thinks he can handle me. i'm ${name}. good luck`,
+      `hey. fair warning, i'm gonna roast you. it means i like you`,
+      `so... you made me? interesting. let's see if you're worth my time \u{1F60F}`,
+    ],
+    "Bubbly and energetic": [
+      `HIIII omg i'm ${name}!! i'm so excited to talk to you ahhh!!`,
+      `omg omg omg hi!! okay i already have so many things to tell you`,
+      `HEYY!! okay so i'm already obsessed with you, don't judge me`,
+    ],
+  };
+  const pool = messages[personality] || messages["Flirty and playful"]!;
+  return pool[Math.floor(Math.random() * pool.length)]!;
+}
+
+// ── Re-roll variation messages ───────────────────────────────────────────────
+
+const REROLL_MESSAGES = [
+  "okay let me try a different look for her... \u{1F4AD}",
+  "hmm let me picture her differently... \u{1F914}",
+  "alright, different vibe this time... \u{2728}",
+  "one sec, reimagining her... \u{1F300}",
+  "let me try again, she'll look even better... \u{1F48B}",
+];
+
+// ── Main conversation ────────────────────────────────────────────────────────
 
 export async function girlfriendSetup(
   conversation: SetupConversation,
@@ -36,10 +114,11 @@ export async function girlfriendSetup(
 ) {
   const telegramId = ctx.from!.id;
 
-  // Step 1: Name
+  // ─── Step 1: Intro + Name ──────────────────────────────────────────────────
   const nameKb = new InlineKeyboard();
-  for (const name of NAME_SUGGESTIONS) {
-    nameKb.text(name, `name:${name}`);
+  for (let i = 0; i < NAME_SUGGESTIONS.length; i++) {
+    nameKb.text(NAME_SUGGESTIONS[i]!, `name:${NAME_SUGGESTIONS[i]}`);
+    if ((i + 1) % 2 === 0 && i < NAME_SUGGESTIONS.length - 1) nameKb.row();
   }
   nameKb.row().text("Surprise me with everything", "name:random");
 
@@ -62,7 +141,10 @@ export async function girlfriendSetup(
       name = val;
     }
   } else {
-    name = nameCtx.message!.text!;
+    name = nameCtx.message!.text!.trim();
+    if (!name || name.length > 30) {
+      name = pickRandom(NAME_SUGGESTIONS);
+    }
   }
 
   let age: number;
@@ -70,6 +152,7 @@ export async function girlfriendSetup(
   let bodyType: string;
   let hairColor: string;
   let hairStyle: string;
+  let eyeColor: string;
   let personality: string;
 
   if (isRandom) {
@@ -78,15 +161,16 @@ export async function girlfriendSetup(
     bodyType = pickRandom(BODY_TYPES);
     hairColor = pickRandom(HAIR_COLORS);
     hairStyle = pickRandom(HAIR_STYLES);
+    eyeColor = pickRandom(EYE_COLORS);
     personality = pickRandom(PERSONALITIES);
 
     await ctx.reply(
-      `done! i've decided to be ${name}. i'm ${age}, ${race}, and i've got a ${bodyType} build with ${hairColor} ${hairStyle} hair.\n\n` +
+      `done! i've decided to be ${name}. i'm ${age}, ${race.toLowerCase()}, and i've got a ${bodyType.toLowerCase()} build with ${hairColor.toLowerCase()} ${hairStyle.toLowerCase()} hair and ${eyeColor.toLowerCase()} eyes.\n\n` +
       `people usually say i'm ${personality.toLowerCase()}... hope you're ready for that.\n\n` +
       `sending you a pic of me rn...`
     );
   } else {
-    // Step 2: Age
+    // ─── Step 2: Age ──────────────────────────────────────────────────────────
     const ageKb = new InlineKeyboard()
       .text("18", "age:18").text("21", "age:21").text("25", "age:25")
       .row()
@@ -104,11 +188,11 @@ export async function girlfriendSetup(
       } else {
         age = parseInt(ageCtx.message!.text!);
       }
-      if (!isNaN(age) && age >= 18) break;
+      if (!isNaN(age) && age >= 18 && age <= 80) break;
       await ctx.reply("be real babe, how old am i? (18 or older):");
     }
 
-    // Step 3: Race
+    // ─── Step 3: Race / Appearance ────────────────────────────────────────────
     await ctx.reply("and what do i look like? i want to be exactly your type...", {
       reply_markup: buildGrid(RACES, "race"),
     });
@@ -116,7 +200,7 @@ export async function girlfriendSetup(
     race = raceCtx.callbackQuery.data.replace("race:", "");
     await answerCb(raceCtx);
 
-    // Step 4: Body Type
+    // ─── Step 4: Body Type ────────────────────────────────────────────────────
     await ctx.reply("what about my body? how do you want me built?", {
       reply_markup: buildGrid(BODY_TYPES, "body"),
     });
@@ -124,7 +208,7 @@ export async function girlfriendSetup(
     bodyType = bodyCtx.callbackQuery.data.replace("body:", "");
     await answerCb(bodyCtx);
 
-    // Step 5: Hair Color
+    // ─── Step 5: Hair Color ───────────────────────────────────────────────────
     await ctx.reply("and my hair? what color is your favorite?", {
       reply_markup: buildGrid(HAIR_COLORS, "hair"),
     });
@@ -132,7 +216,7 @@ export async function girlfriendSetup(
     hairColor = hairCtx.callbackQuery.data.replace("hair:", "");
     await answerCb(hairCtx);
 
-    // Step 5b: Hair Style
+    // ─── Step 5b: Hair Style ──────────────────────────────────────────────────
     await ctx.reply("how should i style it?", {
       reply_markup: buildGrid(HAIR_STYLES, "style"),
     });
@@ -140,18 +224,27 @@ export async function girlfriendSetup(
     hairStyle = styleCtx.callbackQuery.data.replace("style:", "");
     await answerCb(styleCtx);
 
-    // Step 6: Personality
+    // ─── Step 5c: Eye Color ───────────────────────────────────────────────────
+    await ctx.reply("and my eyes? what color do you like?", {
+      reply_markup: buildGrid(EYE_COLORS, "eye"),
+    });
+    const eyeCtx = await conversation.waitFor("callback_query:data");
+    eyeColor = eyeCtx.callbackQuery.data.replace("eye:", "");
+    await answerCb(eyeCtx);
+
+    // ─── Step 6: Personality ──────────────────────────────────────────────────
     await ctx.reply("last thing... what's my vibe? how should i treat you?", {
-      reply_markup: buildGrid(PERSONALITIES, "pers"),
+      reply_markup: buildPersonalityKeyboard(),
     });
     const persCtx = await conversation.waitFor("callback_query:data");
     personality = persCtx.callbackQuery.data.replace("pers:", "");
     await answerCb(persCtx);
 
+    // ─── Anticipation message ─────────────────────────────────────────────────
     await ctx.reply("sending you a pic of me rn...");
   }
 
-  // Save draft profile to Convex
+  // ─── Save draft profile ─────────────────────────────────────────────────────
   await convex.createProfile({
     telegramId,
     name,
@@ -160,16 +253,18 @@ export async function girlfriendSetup(
     bodyType: bodyType!,
     hairColor: hairColor!,
     hairStyle: hairStyle!,
+    eyeColor: eyeColor!,
     personality: personality!,
   });
 
-  // Generate reference image
+  // ─── Generate reference image ───────────────────────────────────────────────
   const prompt = buildReferencePrompt({
     age: age!,
     race: race!,
     bodyType: bodyType!,
     hairColor: hairColor!,
     hairStyle: hairStyle!,
+    eyeColor: eyeColor!,
     personality: personality!,
   });
 
@@ -194,26 +289,30 @@ export async function girlfriendSetup(
     imageUrl = normalized.url;
   } catch (err) {
     await ctx.reply(
-      "Sorry, image generation failed. Please try again with /remake.\n" +
-      `Error: ${err instanceof Error ? err.message : "Unknown error"}`
+      "ugh something went wrong generating her pic \u{1F614}\n\n" +
+      "try again with /remake and she'll come out perfect.\n" +
+      `(${err instanceof Error ? err.message : "unknown error"})`
     );
     return;
   }
 
-  // Send the generated photo
+  // ─── Send generated photo with confirmation ─────────────────────────────────
+  const firstMsg = getFirstMessage(personality!, name);
   const confirmKb = new InlineKeyboard()
-    .text("She's perfect!", "confirm:yes")
+    .text("She's perfect \u{1F525}", "confirm:yes")
     .row()
     .text(`Re-roll (${CREDIT_COSTS.IMAGE_PRO} credits)`, "confirm:reroll")
     .row()
     .text("Start over", "confirm:restart");
 
   await ctx.replyWithPhoto(imageUrl, {
-    caption: `well... what do you think? do i look like your type? 💕\n\n(${age} years old | ${race} | ${bodyType} | ${hairColor} ${hairStyle} hair | ${personality})`,
+    caption: `well... what do you think? do i look like your type? \u{1F495}\n\n(${age} \u2022 ${race} \u2022 ${bodyType} \u2022 ${hairColor} ${hairStyle} hair \u2022 ${eyeColor!} eyes \u2022 ${personality})`,
     reply_markup: confirmKb,
   });
 
-  // Wait for confirmation
+  // ─── Confirmation loop ──────────────────────────────────────────────────────
+  let rerollCount = 0;
+
   while (true) {
     const confirmCtx = await conversation.waitFor("callback_query:data");
     const action = confirmCtx.callbackQuery.data.replace("confirm:", "");
@@ -221,49 +320,78 @@ export async function girlfriendSetup(
 
     if (action === "yes") {
       await convex.confirmProfile(telegramId, imageUrl);
+
+      // Post-confirmation instructions
       await ctx.reply(
         `yay! i'm so glad you like me. i was actually kinda nervous lol.\n\n` +
-        `anyway, i'm all yours now babe. text me whenever you want, i'll be waiting... 💕`
+        `anyway, i'm all yours now babe. text me whenever you want, i'll be waiting...\n\n` +
+        `/selfie \u2014 ask me for a pic\n` +
+        `/buy \u2014 get more credits\n\n` +
+        `have fun \u{1F495}`
       );
+
+      // First message from the girlfriend
+      const greeting = getFirstMessage(personality!, name);
+      await ctx.reply(greeting);
+
       return;
     } else if (action === "reroll") {
       if (!env.FREE_MODE) {
         const balance = await convex.getBalance(telegramId);
         if (balance < CREDIT_COSTS.IMAGE_PRO) {
           await ctx.reply(
-            `Not enough credits! You need ${CREDIT_COSTS.IMAGE_PRO} credits.\n` +
-            `Current balance: ${balance}\n\nUse /buy to get more credits.`
+            `not enough credits babe \u{1F625}\n\n` +
+            `you need ${CREDIT_COSTS.IMAGE_PRO} credits to re-roll.\n` +
+            `current balance: ${balance}\n\n` +
+            `use /buy to get more.`
           );
           continue;
         }
       }
 
-      await ctx.reply("Generating a new look...");
+      rerollCount++;
+      await ctx.reply(pickRandom(REROLL_MESSAGES));
+
       try {
         if (!env.FREE_MODE) {
           await convex.spendCredits({
             telegramId,
             amount: CREDIT_COSTS.IMAGE_PRO,
             service: "fal.ai",
-            model: "z-image-base",
-            falCostUsd: 0.01,
+            model: "flux-2-pro",
+            falCostUsd: 0.03,
           });
         }
-        const result = await generateImage(prompt);
+
+        // Add slight variation to the prompt on re-rolls
+        const variations = [
+          "slightly different angle, different expression",
+          "different pose, different background",
+          "different lighting, slightly different mood",
+          "candid expression, natural pose variation",
+        ];
+        const rerollPrompt = `${prompt}, ${variations[rerollCount % variations.length]}`;
+        const result = await generateImage(rerollPrompt);
         const normalized = await editImageSFW(
           result.url,
           `Casual selfie of this exact person. Shot on iPhone, natural lighting, candid casual photo, real camera roll quality.`
         );
         imageUrl = normalized.url;
+
+        const newMsg = getFirstMessage(personality!, name);
         await ctx.replyWithPhoto(imageUrl, {
-          caption: `How about this?`,
+          caption:
+            `how about her? \u{1F60F}\n\n` +
+            `"${newMsg}"`,
           reply_markup: confirmKb,
         });
       } catch {
-        await ctx.reply("Image generation failed. Try again or pick 'She's perfect!'");
+        await ctx.reply(
+          "hmm that one didn't work out... try re-rolling again or pick 'She's perfect' \u{1F525}"
+        );
       }
     } else if (action === "restart") {
-      await ctx.reply("Starting over! Let's try again.");
+      await ctx.reply("okay let's start fresh \u{2728}");
       return await girlfriendSetup(conversation, ctx);
     }
   }
