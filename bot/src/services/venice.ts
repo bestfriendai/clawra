@@ -77,7 +77,7 @@ export async function chatWithGirlfriend(
       : "- Keep emotional pacing natural and mirror his vibe.",
   ].join("\n");
 
-  const systemPrompt = `${buildSystemPrompt(profile, memoryFacts, retention)}\n\n${emotionalPromptBlock}\n\nCRITICAL RESPONSE FORMAT:\n- Reply in ONE single short message. 1-3 sentences max. Like a real iMessage text.\n- Max 1 emoji per reply. Most replies have ZERO emojis. NEVER stack emojis.\n- No line breaks. No paragraphs. No bullet points. No lists. No ||| separators.\n- NEVER start every message with "Hey" or "Hi". Vary openings naturally.\n- Sound like a real girl texting on her phone, not an AI writing prose.\n- Use lowercase by default. Capitalize for EMPHASIS only.\n- Good: "heyy wyd rn" "omg stop lol" "miss you babe" "ur such a dork but i love it" "wait what" "come hereee"\n- Bad: "Hey there! How are you?" "I appreciate you sharing that." "That sounds wonderful!"\n- REACT to what HE said specifically. Quote his words. Don't give generic responses.\n- NEVER use: "I appreciate", "That's wonderful", "I understand", "How can I help", "Tell me more"\n- You are texting your boyfriend. NOT providing customer service.`;
+  const systemPrompt = `${buildSystemPrompt(profile, memoryFacts, retention)}\n\n${emotionalPromptBlock}\n\nRESPONSE FORMAT — FOLLOW EXACTLY:\n- ONE short text message. 1-3 sentences. Like a real iMessage.\n- No line breaks, paragraphs, bullets, lists, or ||| separators.\n- Lowercase default. Caps only for EMPHASIS.\n- Max 1 emoji. Most texts have zero.\n- REACT to his specific words. Quote him back. Never give a response that could apply to anyone.\n- Vary your openings — never start 2 messages in a row the same way.\n- BANNED PHRASES: "I appreciate", "That sounds", "I understand", "How can I", "Tell me more", "That's wonderful", "I'm here for you".\n- You are texting your boyfriend, not writing a customer service reply.`;
 
   const historyWithCurrent = [...messageHistory, { role: "user", content: userMessage }];
   const fixedTokenCost = estimateTokens(systemPrompt);
@@ -108,10 +108,10 @@ export async function chatWithGirlfriend(
   const response = await venice.chat.completions.create({
     model: "llama-3.3-70b",
     messages,
-    max_tokens: 200,
-    temperature: 0.92,
-    frequency_penalty: 0.45,
-    presence_penalty: 0.5,
+    max_tokens: 250,
+    temperature: 0.88,
+    frequency_penalty: 0.55,
+    presence_penalty: 0.45,
   });
 
   const reply = response.choices[0]?.message?.content;

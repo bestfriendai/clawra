@@ -116,14 +116,18 @@ const IMAGE_FAIL_EXCUSES = [
 ];
 
 const VENICE_FALLBACK_MESSAGES = [
-  "sorry babe my phone froze for a sec",
-  "wait i think my wifi is being weird",
-  "ugh hold on my phone is acting up",
-  "my messages are lagging rn",
-  "lol my phone just died for a sec, im back",
-  "sorry was loading something hold on",
-  "ugh this app keeps glitching on me",
-  "wait what happened lol my screen froze",
+  "sorry my phone just did something weird hold on",
+  "wait lol my messages aren't sending",
+  "ugh this app is being so annoying rn",
+  "my phone literally just froze on me",
+  "hold on my wifi just disconnected for a sec",
+  "lol ok im back, idk what happened",
+  "sorry babe my screen went black for a sec",
+  "omg my phone has been so buggy today",
+  "wait i just lost signal for a sec",
+  "ugh i had a whole message typed and it deleted itself",
+  "sorry i got distracted for a sec, what were we saying",
+  "hold on let me switch to wifi my data is being weird",
 ];
 
 function createPostImageKeyboard(): InlineKeyboard {

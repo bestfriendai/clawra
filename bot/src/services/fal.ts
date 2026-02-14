@@ -275,14 +275,11 @@ export async function editImageSFW(
 ): Promise<FalImageResult> {
   const safePrompt = sanitizeImagePrompt(prompt);
 
+  // Keep wrapper lean — buildSelfieSFW already includes identity anchor + realism markers.
+  // Grok Edit has an 8000 char prompt limit — don't waste it on redundant realism text.
   const identityPrompt = [
-    "Photo of the exact same person from the reference image. Same face, same bone structure, same skin tone.",
+    "Exact same person from the reference image. Same face, bone structure, skin tone, body type.",
     safePrompt,
-    "Shot on iPhone front camera, rushed one-handed selfie. Arm's-length perspective with slight wide-angle distortion.",
-    "Uneven practical lighting from whatever was already in the room. No professional lighting setup.",
-    "Real skin with visible pores, uneven tone, natural oil shine, slight blemishes. Hair has flyaways and frizz.",
-    "This is NOT an AI image. This is NOT a photoshoot. This is a quick selfie from someone's camera roll.",
-    "Natural phone camera artifacts: shadow grain, edge softness, imperfect white balance, slight lens barrel distortion.",
   ].join(" ");
 
   const result = await withRetry(
