@@ -52,10 +52,20 @@ const venice = new OpenAI({
 });
 
 // Track message count per user for periodic memory extraction
+// Use LRU-style eviction to prevent unbounded memory growth
+const MAX_TRACKED_USERS = 5000;
 const messageCounters = new Map<number, number>();
 const moodTracker = new Map<number, Mood[]>();
 const lastImageSent = new Map<number, string>();
 const lastImagePrompt = new Map<number, string>();
+
+function trackWithEviction<V>(map: Map<number, V>, key: number, value: V): void {
+  if (map.size >= MAX_TRACKED_USERS && !map.has(key)) {
+    const firstKey = map.keys().next().value;
+    if (firstKey !== undefined) map.delete(firstKey);
+  }
+  map.set(key, value);
+}
 
 type Mood = "playful" | "romantic" | "sexual" | "casual" | "emotional";
 
@@ -80,26 +90,44 @@ const PRE_IMAGE_MESSAGES = [
   "lemme take this real quick",
   "oooh ok one sec",
   "don't go anywhere",
+  "ok lemme find the right angle",
+  "hold onnn",
+  "wait i need better lighting lol",
+  "ok you asked for it",
+  "let me make sure i look cute first",
+  "brb",
 ];
 
 const IMAGE_FAIL_EXCUSES = [
-  "ugh my camera glitched",
-  "lol it came out blurry, one sec",
-  "wait that one bugged out on my phone",
-  "my camera app froze lmao",
-  "omg the lighting was so bad hold on",
-  "that one was ugly lol give me a sec",
-  "wait no that angle was terrible lemme redo it",
-  "ugh I blinked. one more try",
-  "my phone storage is full or something it won't save",
-  "the photo didn't send?? ugh let me try again",
+  "ugh my camera glitched sorry babe",
+  "lol it came out blurry hold on",
+  "wait my phone is being so stupid rn",
+  "my camera app froze lmao one sec",
+  "omg the lighting is terrible in here",
+  "that one was ugly lol give me a sec to retake",
+  "ugh i blinked. literally every time",
+  "my phone storage is full or something 😭",
+  "it didn't send?? ugh this phone i swear",
+  "wait that angle made me look weird lol no",
+  "ok the camera is NOT cooperating today",
+  "lmaoo that came out so bad hold on",
+  "my phone literally chose the worst moment to lag",
+  "nah that one isn't cute enough for you, lemme try again",
 ];
 
 const VENICE_FALLBACK_MESSAGES = [
-  "sorry babe my phone froze for a sec",
-  "wait I think my wifi is being weird",
-  "ugh hold on",
-  "my messages are lagging rn babe",
+  "sorry my phone just did something weird hold on",
+  "wait lol my messages aren't sending",
+  "ugh this app is being so annoying rn",
+  "my phone literally just froze on me",
+  "hold on my wifi just disconnected for a sec",
+  "lol ok im back, idk what happened",
+  "sorry babe my screen went black for a sec",
+  "omg my phone has been so buggy today",
+  "wait i just lost signal for a sec",
+  "ugh i had a whole message typed and it deleted itself",
+  "sorry i got distracted for a sec, what were we saying",
+  "hold on let me switch to wifi my data is being weird",
 ];
 
 function createPostImageKeyboard(): InlineKeyboard {
@@ -113,19 +141,23 @@ function createPostImageKeyboard(): InlineKeyboard {
 
 async function simulateTyping(ctx: BotContext, responseLength: number): Promise<void> {
   await ctx.replyWithChatAction("typing");
-  const msPerChar = 40 + Math.random() * 20;
-  const delay = Math.min(8000, Math.max(1500, responseLength * msPerChar));
-  const thinkingPause = Math.random() < 0.2 ? 2000 + Math.random() * 3000 : 0;
-  await sleep(delay + thinkingPause);
+  // Real people type ~40-60 WPM = 200-300 chars/min = 3-5 chars/sec
+  // Short messages are faster, long messages have pauses
+  const baseMs = Math.min(4000, Math.max(800, responseLength * 25));
+  // Sometimes she pauses mid-thought (15% chance)
+  const thinkingPause = Math.random() < 0.15 ? 1000 + Math.random() * 2000 : 0;
+  await sleep(baseMs + thinkingPause);
 }
 
 async function simulateRealisticTyping(ctx: BotContext): Promise<void> {
-  if (Math.random() < 0.15) {
+  // 12% chance of "typing... stops... types again" pattern (she's rethinking what to say)
+  if (Math.random() < 0.12) {
     await ctx.replyWithChatAction("typing");
-    await sleep(2000);
-    await sleep(1500);
+    await sleep(1500 + Math.random() * 1500);
+    // Brief pause where typing indicator disappears
+    await sleep(800 + Math.random() * 1200);
     await ctx.replyWithChatAction("typing");
-    await sleep(2000);
+    await sleep(1000 + Math.random() * 1500);
   } else {
     await ctx.replyWithChatAction("typing");
   }
@@ -220,8 +252,8 @@ function detectMood(text: string): Mood {
 function trackMood(telegramId: number, userMessage: string, replyText: string): Mood[] {
   const mood = detectMood(`${userMessage}\n${replyText}`);
   const history = moodTracker.get(telegramId) || [];
-  const updated = [...history, mood].slice(-3);
-  moodTracker.set(telegramId, updated);
+  const updated = [...history, mood].slice(-5);
+  trackWithEviction(moodTracker, telegramId, updated);
   setSessionValue(telegramId, "moodTracker", updated).catch(() => {});
   return updated;
 }
@@ -230,8 +262,15 @@ function shouldAutoTriggerSelfie(replyText: string, moods: Mood[]): boolean {
   const hasSelfieCue = SELFIE_CUE_PATTERNS.some((pattern) => pattern.test(replyText));
   if (!hasSelfieCue) return false;
 
-  const sexualStreak = moods.length >= 3 && moods.every((mood) => mood === "sexual");
-  const chance = sexualStreak ? 0.8 : 0.35;
+  // Higher chance when mood is consistently sexual or romantic
+  const recentMoods = moods.slice(-3);
+  const sexualStreak = recentMoods.length >= 3 && recentMoods.every((mood) => mood === "sexual");
+  const romanticStreak = recentMoods.length >= 2 && recentMoods.every((mood) => mood === "romantic" || mood === "sexual");
+
+  let chance = 0.35;
+  if (sexualStreak) chance = 0.85;
+  else if (romanticStreak) chance = 0.55;
+
   return Math.random() < chance;
 }
 
@@ -672,35 +711,51 @@ export async function handleChat(ctx: BotContext) {
         );
 
         imageUrl = result.url;
-        lastImageSent.set(telegramId, result.url);
-        lastImagePrompt.set(telegramId, imagePrompt);
+        trackWithEviction(lastImageSent, telegramId, result.url);
+        trackWithEviction(lastImagePrompt, telegramId, imagePrompt);
         setSessionValue(telegramId, "lastImageSent", result.url).catch(() => {});
         setSessionValue(telegramId, "lastImagePrompt", imagePrompt).catch(() => {});
         await ctx.replyWithPhoto(result.url);
 
         const sfwPostMessages = [
           "like it?",
-          "what do you think?",
-          "am I cute or am I cute",
+          "what do you think babe",
+          "am i cute or am i cute",
           "rate me 1-10 and be honest",
           "took that just for you btw",
           "you better save that one",
-          "do I look ok?",
+          "do i look ok??",
           "hehe",
           "that angle tho",
           "you're welcome lol",
+          "be honest... how do i look",
+          "i look good today ngl",
+          "this ones for your eyes only",
+          "ok am i actually cute or are you just being nice",
+          "dont just stare say something lol",
+          "took me like 5 tries to get that angle right",
+          "you better not screenshot that... ok fine you can",
+          "thoughts?? be nice",
         ];
         const nsfwPostMessages = [
-          "like what you see?",
+          "like what you see? 😏",
           "you better appreciate this",
           "that's all for you baby",
-          "don't show anyone else ok",
+          "don't you dare show anyone else",
           "you're staring aren't you",
           "mmm did that do something to you?",
-          "I took that one just now btw",
+          "i took that one just now btw",
           "was it worth the wait?",
-          "hehe you're blushing I can tell",
-          "want more? 😏",
+          "you're blushing i can tell",
+          "want more?",
+          "this is only for you ok",
+          "i can't believe i just sent that lol",
+          "ok now its your turn 😏",
+          "bet you weren't expecting that",
+          "delete that... jk keep it",
+          "you owe me for that one",
+          "hope you're alone rn lol",
+          "that's what you do to me",
         ];
         const postPool = selfieNsfw ? nsfwPostMessages : sfwPostMessages;
         const postMsg = postPool[Math.floor(Math.random() * postPool.length)];
@@ -872,7 +927,7 @@ export async function handleChat(ctx: BotContext) {
     }
 
     const count = (messageCounters.get(telegramId) || 0) + 1;
-    messageCounters.set(telegramId, count);
+    trackWithEviction(messageCounters, telegramId, count);
     setSessionValue(telegramId, "messageCount", count).catch(() => {});
 
     if (count % 5 === 0) {

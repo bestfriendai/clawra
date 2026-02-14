@@ -77,7 +77,7 @@ export async function chatWithGirlfriend(
       : "- Keep emotional pacing natural and mirror his vibe.",
   ].join("\n");
 
-  const systemPrompt = `${buildSystemPrompt(profile, memoryFacts, retention)}\n\n${emotionalPromptBlock}\n\nCRITICAL RESPONSE FORMAT:\n- Reply in ONE single short message. 1-3 sentences max.\n- Max 1 emoji per reply. Most replies have zero. NEVER stack emojis.\n- No line breaks. No paragraphs. No bullet points. No lists. No |||.\n- Sound like a real girl texting, not writing an essay.\n- Good examples: "heyy wyd rn", "omg stop that's so cute lol", "miss you babe", "lol ur such a dork but i love it"`;
+  const systemPrompt = `${buildSystemPrompt(profile, memoryFacts, retention)}\n\n${emotionalPromptBlock}\n\nRESPONSE FORMAT — FOLLOW EXACTLY:\n- ONE short text message. 1-3 sentences. Like a real iMessage.\n- No line breaks, paragraphs, bullets, lists, or ||| separators.\n- Lowercase default. Caps only for EMPHASIS.\n- Max 1 emoji. Most texts have zero.\n- REACT to his specific words. Quote him back. Never give a response that could apply to anyone.\n- Vary your openings — never start 2 messages in a row the same way.\n- BANNED PHRASES: "I appreciate", "That sounds", "I understand", "How can I", "Tell me more", "That's wonderful", "I'm here for you".\n- You are texting your boyfriend, not writing a customer service reply.`;
 
   const historyWithCurrent = [...messageHistory, { role: "user", content: userMessage }];
   const fixedTokenCost = estimateTokens(systemPrompt);
@@ -102,13 +102,16 @@ export async function chatWithGirlfriend(
     })),
   ];
 
+  // Temperature 0.9 for more creative/natural responses
+  // Higher frequency_penalty to avoid repetitive patterns
+  // Higher presence_penalty to encourage variety
   const response = await venice.chat.completions.create({
     model: "llama-3.3-70b",
     messages,
     max_tokens: 250,
-    temperature: 0.85,
-    frequency_penalty: 0.3,
-    presence_penalty: 0.4,
+    temperature: 0.88,
+    frequency_penalty: 0.55,
+    presence_penalty: 0.45,
   });
 
   const reply = response.choices[0]?.message?.content;
@@ -237,24 +240,35 @@ export async function generateProactiveMessage(
 ): Promise<string> {
   const vibeMap = {
     morning:
-      `Generate a cute good morning text from ${profile.name} to her boyfriend. ` +
-      `She's ${profile.personality.toLowerCase()}. Keep it under 100 chars, max 1 emoji, be flirty and sweet. ` +
-      `Examples: "good morning baby dreamed about you 🥰", "rise and shine handsome"`,
+      `You are ${profile.name}, a ${profile.personality.toLowerCase()} girlfriend texting her boyfriend first thing in the morning. ` +
+      `Write ONE casual good morning text like a real girl would send on iMessage. ` +
+      `Keep it under 80 chars. Max 1 emoji (most texts have zero). Lowercase. ` +
+      `DON'T start with "Good morning" every time. Mix it up: ` +
+      `"mmm just woke up thinking about you", "5 more minutes... come cuddle me", ` +
+      `"dreamed about you again babe", "why am i awake this early ugh... hi tho", ` +
+      `"rise and shine handsome", "morning baby did you sleep ok"`,
     goodnight:
-      `Generate a sweet goodnight text from ${profile.name} to her boyfriend. ` +
-      `She's ${profile.personality.toLowerCase()}. Keep it under 100 chars, max 1 emoji, be flirty and sweet. ` +
-      `Examples: "goodnight baby wish you were here to cuddle", "sleep tight babe 💕"`,
+      `You are ${profile.name}, a ${profile.personality.toLowerCase()} girlfriend texting her boyfriend before bed. ` +
+      `Write ONE casual goodnight text like a real girl would send. ` +
+      `Keep it under 80 chars. Max 1 emoji. Lowercase. ` +
+      `DON'T always say "goodnight". Mix it up: ` +
+      `"wish you were here to cuddle rn", "cant sleep... thinking about you", ` +
+      `"sleepy but i dont wanna stop texting you", "come to bed babe", ` +
+      `"night baby dream about me ok", "falling asleep to the thought of you"`,
     thinking_of_you:
-      `Generate a "thinking of you" text from ${profile.name} to her boyfriend. ` +
-      `She's ${profile.personality.toLowerCase()}. Keep it under 100 chars, max 1 emoji, be casual and sweet. ` +
-      `This should feel like a random afternoon boredom check-in, not a formal greeting. ` +
-      `Examples: "hey you just randomly thought about you", "can't stop thinking about you rn 🥺"`,
+      `You are ${profile.name}, a ${profile.personality.toLowerCase()} girlfriend randomly texting her boyfriend during the day. ` +
+      `Write ONE casual "thinking of you" text that feels like a random boredom check-in. ` +
+      `Keep it under 80 chars. Max 1 emoji. Lowercase. NOT a greeting. ` +
+      `Should feel spontaneous and real: ` +
+      `"just saw something that reminded me of you lol", "bored at work wyd", ` +
+      `"random but i miss your face rn", "cant focus today and its your fault", ` +
+      `"hey you", "so i was thinking about you and got distracted from everything else"`,
   };
 
   const response = await venice.chat.completions.create({
     model: "llama-3.3-70b",
     messages: [{ role: "user", content: vibeMap[type] }],
-    max_tokens: 100,
+    max_tokens: 80,
     temperature: 1.0,
   });
 
@@ -314,25 +328,31 @@ export async function enhancePromptWithLLM(
 ): Promise<EnhancedPrompt | null> {
   const systemPrompts: Record<string, string> = {
     image: [
-      "You translate casual user requests into detailed image generation prompts.",
+      "You translate casual user requests into detailed image generation prompts for a photorealistic AI model.",
       "Rules:",
-      "- Describe the scene as captured on an iPhone 16 Pro Max — sharp detail, natural depth, true-to-life colors",
-      "- Include: natural iPhone computational photography look, slight bokeh from portrait mode, true tone lighting",
-      "- Describe what the person is ACTUALLY DOING based on the user's request",
-      "- Include specific details the user mentioned (names, actions, locations, objects)",
-      "- If the user mentions a specific location, describe that location vividly",
-      "- If the user mentions an activity, describe her doing that activity naturally",
-      `- The woman is: ${profile.age} years old, ${profile.race}, ${profile.bodyType} build, ${profile.hairColor} ${profile.hairStyle} hair`,
+      "- Describe the scene as a REAL candid photo from someone's phone camera roll, NOT a professional photoshoot",
+      "- Include specific practical lighting (window light, overhead fluorescent, bedside lamp) — NEVER studio lighting",
+      "- Describe what she is ACTUALLY DOING based on the user's request, with natural body language",
+      "- Include specific details the user mentioned (actions, locations, objects, outfits)",
+      "- For scene: describe the REAL environment with imperfect details (messy room, stained counter, unmade bed)",
+      "- For action: describe natural mid-moment body position, not a posed catalog shot",
+      "- For outfit: describe realistic clothes a real girl would wear, with natural wrinkles and fit",
+      "- For lighting: specify practical light source and direction (warm lamp from left, cold window light from behind)",
+      "- For mood: describe her genuine expression and emotional state, not generic 'sexy' or 'happy'",
+      `- The woman is: ${profile.age} years old, ${profile.race}, ${profile.bodyType} build, ${profile.hairColor} ${profile.hairStyle} hair${profile.eyeColor ? `, ${profile.eyeColor.toLowerCase()} eyes` : ""}`,
       "- Output ONLY valid JSON: { \"scene\": \"...\", \"action\": \"...\", \"outfit\": \"...\", \"lighting\": \"...\", \"mood\": \"...\", \"spokenWords\": \"\" }",
     ].join("\n"),
     video: [
-      "You translate casual user requests into detailed video generation prompts.",
+      "You translate casual user requests into detailed video prompts for an image-to-video AI model.",
       "Rules:",
-      "- Describe the action she performs based EXACTLY on what the user asked for",
-      "- If the user wants her to say something, describe her speaking those exact words with natural lip movement",
-      "- Include camera motion appropriate for the action (handheld, following, static)",
-      "- Describe the scene setting and what's visible in the background",
-      `- The woman is: ${profile.age} years old, ${profile.race}, ${profile.bodyType} build, ${profile.hairColor} ${profile.hairStyle} hair`,
+      "- Describe EXACTLY what physical motion happens: which body parts move, in what direction, at what speed",
+      "- Describe SUBTLE realistic movements: breathing, weight shifts, hair settling, fabric draping",
+      "- If she speaks, describe natural lip movement with the EXACT words to say",
+      "- Include camera behavior: handheld shake, slow pan, static with micro-tremor",
+      "- Describe what stays STILL (background objects, furniture) to prevent morphing artifacts",
+      "- Keep motion descriptions simple and physically plausible — complex motion causes AI artifacts",
+      "- Scene should feel like a real phone video a girlfriend recorded and sent",
+      `- The woman is: ${profile.age} years old, ${profile.race}, ${profile.bodyType} build, ${profile.hairColor} ${profile.hairStyle} hair${profile.eyeColor ? `, ${profile.eyeColor.toLowerCase()} eyes` : ""}`,
       "- Output ONLY valid JSON: { \"scene\": \"...\", \"action\": \"...\", \"outfit\": \"...\", \"lighting\": \"...\", \"mood\": \"...\", \"spokenWords\": \"...\" }",
       "- For spokenWords: include the EXACT words she should say if the user wants her to speak, otherwise empty string",
     ].join("\n"),

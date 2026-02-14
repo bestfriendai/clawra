@@ -265,7 +265,7 @@ export function enhancePromptRealism(prompt: string, profile?: PromptEnhancement
   if (score.camera === 0) {
     const cameras = [
       "iPhone 17 Pro Max front camera, 48MP, f/1.9, 26mm equivalent, portrait mode",
-      "Samsung Galaxy S25 Ultra selfie cam, f/2.2, slight lens distortion",
+      "Samsung Galaxy S26 Ultra selfie cam, f/2.2, slight lens distortion",
       "iPhone 17 Pro Max selfie, phone camera quality, casual handheld framing",
       "phone camera selfie, arm's-length perspective, slight wide-angle distortion",
     ];
