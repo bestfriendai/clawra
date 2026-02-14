@@ -247,7 +247,9 @@ async function start() {
     app.use(
       secretPath,
       express.json(),
-      webhookCallback(bot, "express")
+      webhookCallback(bot, "express", {
+        timeoutMilliseconds: 120_000,
+      })
     );
 
     await bot.api.setWebhook(`${env.WEBHOOK_URL}${secretPath}`, {
