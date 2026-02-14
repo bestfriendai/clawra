@@ -338,6 +338,7 @@ export function buildReferencePrompt(profile: {
   bodyType: string;
   hairColor: string;
   hairStyle: string;
+  eyeColor?: string;
   personality: string;
 }): string {
   const personalityKey = resolvePersonalityType(profile.personality);
@@ -381,7 +382,7 @@ export function buildReferencePrompt(profile: {
 
   return [
     `A casual smartphone photo of a real ${profile.age}-year-old ${profile.race} woman with ${skinTone} skin and a ${bodyDesc} build.`,
-    `She has ${profile.hairColor} ${profile.hairStyle} hair, not styled for a photo, a few strands out of place and slightly frizzy.`,
+    `She has ${profile.hairColor} ${profile.hairStyle} hair${profile.eyeColor ? ` and ${profile.eyeColor.toLowerCase()} eyes` : ""}, not styled for a photo, a few strands out of place and slightly frizzy.`,
     `${captureContext.scene}.`,
     `${captureContext.framing}.`,
     `${expression}.`,
@@ -503,9 +504,10 @@ export function buildSelfieSFW(
 
   const isOutdoorScene = /outdoor|beach|pool|balcony|sidewalk|street|golden hour|sunset|nature|park|rooftop|yacht|boat|hiking|city|downtown/.test(lower);
 
+  const eyeDesc = profile.eyeColor ? `, ${profile.eyeColor.toLowerCase()} eyes` : "";
   const identityAnchor = [
     `Candid iPhone selfie of the same ${profile.race} woman from the reference photo.`,
-    `${profile.hairColor} ${profile.hairStyle} hair, ${profile.bodyType} build.`,
+    `${profile.hairColor} ${profile.hairStyle} hair${eyeDesc}, ${profile.bodyType} build.`,
     "Real photo, not AI. Visible skin texture, pores, slight imperfections, natural facial asymmetry.",
   ].join(" ");
 
@@ -554,9 +556,10 @@ export function buildSelfieNSFW(
   const sceneEnrichment = extractEnrichedField(context, "scene_enrichment");
   const userRequest = extractEnrichedField(context, "user_request");
 
+  const nsfwEyeDesc = profile.eyeColor ? `, ${profile.eyeColor.toLowerCase()} eyes` : "";
   const identityAnchor = [
     `Real amateur photo of the same ${profile.race} woman from the reference.`,
-    `${profile.hairColor} ${profile.hairStyle} hair, ${profile.bodyType} build, natural proportions.`,
+    `${profile.hairColor} ${profile.hairStyle} hair${nsfwEyeDesc}, ${profile.bodyType} build, natural proportions.`,
     "NOT AI generated. Real person with visible pores, skin texture, natural asymmetry.",
   ].join(" ");
 
@@ -882,67 +885,67 @@ function selectCameraForScene(scene: SceneType): { spec: string; artifacts: stri
   const setups: Record<SceneType, Array<{ spec: string; artifacts: string }>> = {
     bathroom: [
       {
-        spec: "iPhone 15 Pro front camera, 12MP TrueDepth",
+        spec: "iPhone 17 Pro front camera, 12MP TrueDepth",
         artifacts: "Mirror reflections are slightly imperfect, edge softness is visible, and low-light shadow grain is present.",
       },
     ],
     bedroom: [
       {
-        spec: "iPhone 16 Pro front camera, 12MP Smart HDR 5",
+        spec: "iPhone 17 Pro front camera, 12MP Smart HDR 5",
         artifacts: "Slight low-light noise and natural handheld wobble give a true phone-camera look.",
       },
     ],
     gym: [
       {
-        spec: "Samsung Galaxy S24 Ultra selfie camera, 12MP f/2.2",
+        spec: "Samsung Galaxy S26 Ultra selfie camera, 12MP f/2.2",
         artifacts: "Fluorescent light creates mild shine and practical highlights with subtle digital grain.",
       },
     ],
     kitchen: [
       {
-        spec: "iPhone 15 front camera, 12MP",
+        spec: "iPhone 17 front camera, 12MP",
         artifacts: "Mixed indoor lighting causes slight color temperature shifts and natural shadow softness.",
       },
     ],
     outdoor: [
       {
-        spec: "iPhone 16 Pro front camera, 12MP",
+        spec: "iPhone 17 Pro front camera, 12MP",
         artifacts: "One side of her face is brighter than the other from natural sun direction, with real-world dynamic range limits.",
       },
     ],
     car: [
       {
-        spec: "iPhone 15 Pro Max front camera, 12MP TrueDepth",
+        spec: "iPhone 17 Pro Max front camera, 12MP TrueDepth",
         artifacts: "Flat windshield lighting and subtle interior reflections keep it casual and unpolished.",
       },
     ],
     restaurant: [
       {
-        spec: "iPhone 15 Pro front camera, 12MP",
+        spec: "iPhone 17 Pro front camera, 12MP",
         artifacts: "Warm ambient restaurant light adds slight color cast and soft handheld blur in dark zones.",
       },
     ],
     club: [
       {
-        spec: "iPhone 16 Pro front camera, night capture",
+        spec: "iPhone 17 Pro front camera, night capture",
         artifacts: "Colored club lights produce uneven skin tones and natural low-light motion softness.",
       },
     ],
     beach: [
       {
-        spec: "Samsung Galaxy S24 Ultra selfie camera, 12MP",
+        spec: "Samsung Galaxy S26 Ultra selfie camera, 12MP",
         artifacts: "Hard sun creates bright highlights, deep shadows, and natural squinting from brightness.",
       },
     ],
     hotel: [
       {
-        spec: "iPhone 15 Pro front camera, 12MP",
+        spec: "iPhone 17 Pro front camera, 12MP",
         artifacts: "Neutral hotel lighting with slight tungsten warmth keeps the image natural and candid.",
       },
     ],
     default: [
       {
-        spec: "iPhone 15 Pro Max front camera, 12MP",
+        spec: "iPhone 17 Pro Max front camera, 12MP",
         artifacts: "Casual framing, slight tilt, and subtle noise make it feel like a real camera-roll selfie.",
       },
     ],
@@ -1036,12 +1039,16 @@ function getBodyPhysics(bodyType: string, action: VideoAction): string {
 function selectIntimateCamera(): { spec: string; artifacts: string } {
   return pickVariant([
     {
-      spec: "iPhone front camera, 12MP, beauty mode OFF",
+      spec: "iPhone 17 Pro front camera, 12MP, beauty mode OFF",
       artifacts: "Slight edge softness, shadow noise, and natural color inconsistency from mixed room lighting.",
     },
     {
-      spec: "Pixel 8 Pro night mode, handheld",
+      spec: "Pixel 9 Pro night mode, handheld",
       artifacts: "Low-light texture and mild motion softness make the image feel genuinely amateur.",
+    },
+    {
+      spec: "Samsung Galaxy S26 Ultra selfie, 12MP f/2.2, no filter",
+      artifacts: "Slight digital noise in shadows, warm color cast from room lighting, natural skin texture.",
     },
   ]);
 }
@@ -1117,7 +1124,8 @@ export async function buildVideoPrompt(profile: GirlfriendProfile, context: stri
 
 function describeGirlfriendForVideo(profile: GirlfriendProfile): string {
   const skinTone = getSkinToneForRace(profile.race);
-  return `a real ${profile.age}-year-old ${profile.race} woman with ${skinTone} skin, ${profile.hairColor} ${profile.hairStyle} hair, natural beauty, casual style`;
+  const eyeDesc = profile.eyeColor ? `, ${profile.eyeColor.toLowerCase()} eyes` : "";
+  return `a real ${profile.age}-year-old ${profile.race} woman with ${skinTone} skin, ${profile.hairColor} ${profile.hairStyle} hair${eyeDesc}, natural beauty, casual style`;
 }
 
 export async function buildPromptFromConversation(
@@ -2185,7 +2193,8 @@ function describeGirlfriend(profile: GirlfriendProfile): string {
   const skinTone = getSkinToneForRace(profile.race);
   const bodyDesc = getBodyDescription(profile.bodyType);
   const faceDetail = getFaceDetailForRace(profile.race);
-  return `a real ${profile.age}-year-old ${profile.race} woman with ${skinTone} skin, ${bodyDesc}, ${profile.hairColor} ${profile.hairStyle} hair with natural texture, ${faceDetail}, visible pores, natural skin grain, authentic amateur photo quality`;
+  const eyeDesc = profile.eyeColor ? `, ${profile.eyeColor.toLowerCase()} eyes` : "";
+  return `a real ${profile.age}-year-old ${profile.race} woman with ${skinTone} skin, ${bodyDesc}, ${profile.hairColor} ${profile.hairStyle} hair with natural texture${eyeDesc}, ${faceDetail}, visible pores, natural skin grain, authentic amateur photo quality`;
 }
 
 function getFaceDetailForRace(race: string): string {
@@ -2216,7 +2225,7 @@ function getBodyDescription(bodyType: string): string {
   if (lower.includes("petite")) return "Petite delicate frame, slim build, graceful proportions";
   if (lower.includes("slim")) return "Slim elegant figure, slender build, lean proportions";
   if (lower.includes("athletic")) return "Athletic toned physique, fit build, defined muscle tone visible";
-  if (lower.includes("curvy")) return "BBL curvy body, extremely tiny snatched waist, big round lifted butt, thick thighs, wide hips, hourglass figure, full bust, flat stomach";
+  if (lower.includes("curvy")) return "Naturally curvy hourglass figure, defined waist, full hips, round butt, full bust, thick thighs, feminine proportions";
   if (lower.includes("thick")) return "Thick voluptuous build, full thighs, wide hips, substantial curves";
   if (lower.includes("plus")) return "Plus size full-figured body, soft curves, wide hips, full bust";
   return "Natural proportionate figure";
@@ -2227,7 +2236,7 @@ function getBodyPreservationPrompt(bodyType: string): string {
   if (lower.includes("petite")) return "BODY TYPE PRESERVATION: PETITE — narrow frame, small bust, visible collarbones, slim arms, narrow hips, slender thighs. Do not add curves or mass.";
   if (lower.includes("slim")) return "BODY TYPE PRESERVATION: SLIM — lean frame, moderate proportions, slim waist, slender limbs. Do not add or remove mass.";
   if (lower.includes("athletic")) return "BODY TYPE PRESERVATION: ATHLETIC — toned muscle definition, firm stomach, defined arms, athletic thighs, firm lifted butt. Preserve exact fitness level.";
-  if (lower.includes("curvy")) return "BODY TYPE PRESERVATION: CURVY/BBL — extremely snatched tiny waist, big round lifted butt (Brazilian Butt Lift shape), thick full thighs, wide hips, flat toned stomach, full bust, dramatic hourglass silhouette. The waist MUST be very small relative to hips/butt. Do NOT make her look chubby or thick all over — the key is the extreme waist-to-hip contrast. Think Instagram model BBL body.";
+  if (lower.includes("curvy")) return "BODY TYPE PRESERVATION: CURVY — natural hourglass figure with defined waist, full round hips, round butt, full bust, thick thighs. Natural proportions with real waist-to-hip ratio. No surgical/enhanced look, no impossibly tiny waist. Think naturally curvy woman, not plastic surgery.";
   if (lower.includes("thick")) return "BODY TYPE PRESERVATION: THICK — fuller thighs, slightly rounded stomach, wider hips, substantial butt. Preserve all fullness and volume.";
   if (lower.includes("plus")) return "BODY TYPE PRESERVATION: PLUS-SIZE — full soft body, round stomach, wide hips, thick arms, full touching thighs, large bust. Belly rolls, love handles, back rolls — all preserved. Do not slim anything.";
   return "BODY TYPE PRESERVATION: Maintain the exact body proportions visible in the reference image.";

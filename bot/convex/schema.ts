@@ -23,6 +23,7 @@ export default defineSchema({
     bodyType: v.string(),
     hairColor: v.string(),
     hairStyle: v.string(),
+    eyeColor: v.optional(v.string()),
     personality: v.string(),
     backstory: v.optional(v.string()),
     referenceImageUrl: v.optional(v.string()),

@@ -12,6 +12,7 @@ import {
   getZImageNegativePrompt,
   ZIMAGE_BASE_DEFAULTS,
   ZIMAGE_TURBO_DEFAULTS,
+  FLUX_PRO_REFERENCE_DEFAULTS,
 } from "../config/model-config.js";
 import {
   getDefaultVoiceProfile,
@@ -159,6 +160,58 @@ export async function generateImage(
   }
 }
 
+/**
+ * Generate the initial reference photo — uses FLUX.2 Pro for highest quality
+ * since this image becomes the foundation for all future selfies.
+ */
+export async function generateReferenceImage(
+  prompt: string,
+  negativePrompt?: string
+): Promise<FalImageResult> {
+  const safePrompt = sanitizeImagePrompt(prompt);
+
+  // Always use FLUX.2 Pro for reference images — quality matters most here
+  try {
+    const result = await withRetry(
+      () => fal.subscribe(MODEL_IDS["flux-2-pro"], {
+        input: {
+          prompt: safePrompt,
+          num_images: 1,
+          output_format: "jpeg",
+          image_size: { width: 768, height: 1344 },
+          safety_tolerance: "5",
+          enable_safety_checker: false,
+        } as any,
+      }),
+      "generate reference image (flux-2-pro)"
+    );
+    const data = result.data as { images?: FalImageResult[] };
+    if (!data.images?.length) throw new Error("No images from FLUX.2 Pro");
+    return data.images[0];
+  } catch (err) {
+    console.warn("FLUX.2 Pro failed for reference, falling back to Z-Image Base");
+    return _generateWithModel(MODEL_IDS["z-image-base"], safePrompt, {});
+  }
+}
+
+/**
+ * Re-roll variant — adds slight prompt variation so each attempt looks different.
+ */
+export async function generateReferenceWithVariation(
+  prompt: string,
+  attemptNumber: number
+): Promise<FalImageResult> {
+  const variations = [
+    "slightly different angle, different expression",
+    "different lighting mood, slightly different pose",
+    "different background setting, natural variation in expression",
+    "different camera angle, slightly different hair arrangement",
+  ];
+  const variation = variations[(attemptNumber - 1) % variations.length] || variations[0];
+  const variedPrompt = `${prompt} With ${variation}.`;
+  return generateReferenceImage(variedPrompt);
+}
+
 async function _generateWithModel(
   modelId: string,
   prompt: string,
@@ -223,12 +276,13 @@ export async function editImageSFW(
   const safePrompt = sanitizeImagePrompt(prompt);
 
   const identityPrompt = [
-    "Photo of the exact same person from the reference image.",
+    "Photo of the exact same person from the reference image. Same face, same bone structure, same skin tone.",
     safePrompt,
-    "Taken on a phone with a small sensor, rushed framing, awkward angle the photographer didn't think about.",
-    "Uneven lighting from whatever was already in the room, noticeable grain in shadows, soft distortion around the edges, slightly harsh contrast.",
-    "Real skin with visible pores, uneven tone, natural oil shine. Hair has flyaways and frizz. Nothing is retouched.",
-    "This accidentally exists in someone's camera roll. It is not a photoshoot.",
+    "Shot on iPhone front camera, rushed one-handed selfie. Arm's-length perspective with slight wide-angle distortion.",
+    "Uneven practical lighting from whatever was already in the room. No professional lighting setup.",
+    "Real skin with visible pores, uneven tone, natural oil shine, slight blemishes. Hair has flyaways and frizz.",
+    "This is NOT an AI image. This is NOT a photoshoot. This is a quick selfie from someone's camera roll.",
+    "Natural phone camera artifacts: shadow grain, edge softness, imperfect white balance, slight lens barrel distortion.",
   ].join(" ");
 
   const result = await withRetry(

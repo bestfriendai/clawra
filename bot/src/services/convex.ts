@@ -126,6 +126,7 @@ export const convex = {
     bodyType: string;
     hairColor: string;
     hairStyle: string;
+    eyeColor?: string;
     personality: string;
     backstory?: string;
   }) => mutation("girlfriendProfiles:create", args),
@@ -137,6 +138,7 @@ export const convex = {
     bodyType?: string;
     hairColor?: string;
     hairStyle?: string;
+    eyeColor?: string;
     personality?: string;
     backstory?: string;
     voiceId?: string;

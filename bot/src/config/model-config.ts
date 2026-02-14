@@ -142,6 +142,14 @@ export const ZIMAGE_TURBO_DEFAULTS = {
   acceleration: "regular",
 } as const;
 
+export const FLUX_PRO_REFERENCE_DEFAULTS = {
+  num_images: 1,
+  output_format: "jpeg",
+  image_size: { width: 768, height: 1344 },
+  safety_tolerance: "5",
+  enable_safety_checker: false,
+} as const;
+
 export function getModelConfig(): ModelConfig {
   const quality = (env.IMAGE_QUALITY || "base") as ImageQuality;
   const fallback = (env.FALLBACK_STRATEGY || "full") as FallbackStrategy;
