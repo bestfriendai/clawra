@@ -193,7 +193,7 @@ export async function chatWithGirlfriend(
   // Higher frequency_penalty to avoid repetitive patterns
   // Higher presence_penalty to encourage variety
   const response = await venice.chat.completions.create({
-    model: "llama-3.3-70b",
+    model: "venice-uncensored",
     messages,
     max_tokens: 250,
     temperature: 0.88,
@@ -260,7 +260,7 @@ export async function chatInGroup(
   ];
 
   const response = await venice.chat.completions.create({
-    model: "llama-3.3-70b",
+    model: "venice-uncensored",
     messages,
     max_tokens: 200,
     temperature: 0.8,
@@ -310,7 +310,7 @@ export async function generateMissYouMessage(
   const prompt = buildMissYouPrompt(profile, hoursAgo, tier);
 
   const response = await venice.chat.completions.create({
-    model: "llama-3.3-70b",
+    model: "venice-uncensored",
     messages: [{ role: "user", content: prompt }],
     max_tokens: 150,
     temperature: 1.0,
@@ -353,7 +353,7 @@ export async function generateProactiveMessage(
   };
 
   const response = await venice.chat.completions.create({
-    model: "llama-3.3-70b",
+    model: "venice-uncensored",
     messages: [{ role: "user", content: vibeMap[type] }],
     max_tokens: 80,
     temperature: 1.0,
@@ -386,7 +386,7 @@ export async function generateDreamSequence(
   ].join(" ");
 
   const response = await venice.chat.completions.create({
-    model: "llama-3.3-70b",
+    model: "venice-uncensored",
     messages: [{ role: "user", content: prompt }],
     max_tokens: 180,
     temperature: 1,
@@ -459,7 +459,7 @@ export async function enhancePromptWithLLM(
 
   try {
     const response = await venice.chat.completions.create({
-      model: "llama-3.3-70b",
+      model: "venice-uncensored",
       messages: [
         { role: "system", content: systemPrompts[mediaType] },
         { role: "user", content: userMessage },
@@ -502,7 +502,7 @@ export async function generateDeepQuestion(
   ].join(" ");
 
   const response = await venice.chat.completions.create({
-    model: "llama-3.3-70b",
+    model: "venice-uncensored",
     messages: [{ role: "user", content: prompt }],
     max_tokens: 60,
     temperature: 0.95,

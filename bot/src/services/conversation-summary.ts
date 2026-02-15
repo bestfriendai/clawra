@@ -29,7 +29,7 @@ ${conversation}`;
 
   try {
     const response = await venice.chat.completions.create({
-      model: "llama-3.3-70b",
+      model: "venice-uncensored",
       messages: [{ role: "user", content: prompt }],
       max_tokens: 220,
       temperature: 0.3,
@@ -62,7 +62,7 @@ ${conversation}`;
 
   try {
     const response = await venice.chat.completions.create({
-      model: "llama-3.3-70b",
+      model: "venice-uncensored",
       messages: [{ role: "user", content: prompt }],
       max_tokens: 180,
       temperature: 0.3,

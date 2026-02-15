@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import type { BotContext } from "../../types/context.js";
 import { convex } from "../../services/convex.js";
 import { chatWithGirlfriend, extractEnhancedMemory, enhancePromptWithLLM } from "../../services/venice.js";
-import { editImage, generateVideoFromImage, generateVoiceNote } from "../../services/fal.js";
+import { editImage, generateImage, generateVideoFromImage, generateVoiceNote } from "../../services/fal.js";
 import { summarizeRecentConversation } from "../../services/conversation-summary.js";
 import { getDefaultVoiceProfile, getVoiceProfile } from "../../config/voice-profiles.js";
 import {
@@ -14,6 +14,7 @@ import {
   isAppearanceChangeRequest,
   isImageFollowup,
   buildVideoPrompt,
+  buildReferencePrompt,
 } from "../../services/girlfriend-prompt.js";
 import {
   updateStreak,
@@ -426,64 +427,62 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
     const detectedMood = detectMood(`${userMessage}\n${joinedReply}`);
     reactToMessage(ctx, detectedMood).catch(() => {});
 
-    if (isAppearanceChangeRequest(userMessage)) {
-      try {
-        const parsePrompt = `The user said: "${userMessage}". They want to change their AI girlfriend's appearance. Extract ONLY the fields that should change. Return a JSON object with ONLY the changed fields from: name, age, race, bodyType, hairColor, hairStyle, personality. Example: {"hairColor": "blonde", "bodyType": "curvy"}. Return ONLY the JSON, nothing else.`;
+    if (isAppearanceChangeRequest(userMessage) && ctx.girlfriend) {
+      const gf = ctx.girlfriend;
+      // Fire-and-forget — don't block the chat response for appearance changes
+      (async () => {
+        try {
+          const parsePrompt = `The user said: "${userMessage}". They want to change their AI girlfriend's appearance. Extract ONLY the fields that should change. Return a JSON object with ONLY the changed fields from: name, age, race, bodyType, hairColor, hairStyle, personality. Example: {"hairColor": "blonde", "bodyType": "curvy"}. Return ONLY the JSON, nothing else.`;
 
-        const parseResponse = await venice.chat.completions.create({
-          model: "llama-3.3-70b",
-          messages: [{ role: "user", content: parsePrompt }],
-          max_tokens: 100,
-          temperature: 0.1,
-        });
+          const parseResponse = await venice.chat.completions.create({
+            model: "venice-uncensored",
+            messages: [{ role: "user", content: parsePrompt }],
+            max_tokens: 100,
+            temperature: 0.1,
+          });
 
-        const parseText = parseResponse.choices[0]?.message?.content?.trim() || "{}";
-        const jsonMatch = parseText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsedChanges = JSON.parse(jsonMatch[0]);
-          const allowedFields = [
-            "name",
-            "race",
-            "bodyType",
-            "hairColor",
-            "hairStyle",
-            "personality",
-          ] as const;
-          const changes: Record<string, string | number> = {};
+          const parseText = parseResponse.choices[0]?.message?.content?.trim() || "{}";
+          const jsonMatch = parseText.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsedChanges = JSON.parse(jsonMatch[0]);
+            const allowedFields = [
+              "name",
+              "race",
+              "bodyType",
+              "hairColor",
+              "hairStyle",
+              "personality",
+            ] as const;
+            const changes: Record<string, string | number> = {};
 
-          for (const field of allowedFields) {
-            const value = parsedChanges[field];
-            if (typeof value === "string") {
-              const safeValue = sanitizeUserInput(value);
-              if (safeValue) {
-                changes[field] = safeValue;
+            for (const field of allowedFields) {
+              const value = parsedChanges[field];
+              if (typeof value === "string") {
+                const safeValue = sanitizeUserInput(value);
+                if (safeValue) {
+                  changes[field] = safeValue;
+                }
               }
             }
+
+            if (typeof parsedChanges.age === "number" && Number.isFinite(parsedChanges.age)) {
+              changes.age = Math.max(18, Math.min(99, Math.trunc(parsedChanges.age)));
+            }
+
+            if (Object.keys(changes).length > 0) {
+              await convex.updateProfile({ telegramId, ...changes });
+
+              const updatedProfile = { ...gf, ...changes } as Parameters<typeof buildReferencePrompt>[0];
+              const refPrompt = buildReferencePrompt(updatedProfile);
+
+              const newRef = await generateImage(refPrompt);
+              await convex.confirmProfile(telegramId, newRef.url);
+            }
           }
-
-          if (typeof parsedChanges.age === "number" && Number.isFinite(parsedChanges.age)) {
-            changes.age = Math.max(18, Math.min(99, Math.trunc(parsedChanges.age)));
-          }
-
-          if (Object.keys(changes).length > 0) {
-            await convex.updateProfile({ telegramId, ...changes });
-
-            const updatedProfile = { ...ctx.girlfriend, ...changes };
-            const { buildReferencePrompt } = await import("../../services/girlfriend-prompt.js");
-            const refPrompt = buildReferencePrompt(updatedProfile);
-
-            const { generateImage } = await import("../../services/fal.js");
-            const newRef = await generateImage(refPrompt);
-
-            await convex.confirmProfile(telegramId, newRef.url);
-
-            Object.assign(ctx.girlfriend, changes);
-            ctx.girlfriend.referenceImageUrl = newRef.url;
-          }
+        } catch (err) {
+          console.error("Appearance change error:", err);
         }
-      } catch (err) {
-        console.error("Appearance change error:", err);
-      }
+      })().catch((err: unknown) => console.error("Appearance change background error:", err));
     }
 
     const moods = trackMood(telegramId, userMessage, joinedReply);
@@ -492,12 +491,19 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
       hasReference && !suppressAttachmentHooks && shouldAutoTriggerSelfie(joinedReply, moods);
     const shouldGenerateImage = hasReference && (explicitSelfieRequest || spontaneousSelfie);
 
-    let { prompt: imagePrompt, isNsfw: selfieNsfw } = await buildPromptFromConversation(
-      ctx.girlfriend,
-      userMessageRaw,
-      joinedReply,
-      moods[moods.length - 1] || "casual"
-    );
+    // Only build image prompt if we actually need an image — skip the extra LLM call otherwise
+    let imagePrompt = "";
+    let selfieNsfw = false;
+    if (shouldGenerateImage) {
+      const built = await buildPromptFromConversation(
+        ctx.girlfriend,
+        userMessageRaw,
+        joinedReply,
+        moods[moods.length - 1] || "casual"
+      );
+      imagePrompt = built.prompt;
+      selfieNsfw = built.isNsfw;
+    }
     const selfieCreditCost = selfieNsfw ? CREDIT_COSTS.IMAGE_PRO : CREDIT_COSTS.SELFIE;
 
     if (!env.FREE_MODE && shouldGenerateImage) {
@@ -514,7 +520,7 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
         telegramId,
         amount: CREDIT_COSTS.CHAT_MESSAGE,
         service: "venice",
-        model: "llama-3.3-70b",
+        model: "venice-uncensored",
       }).catch((error: unknown) => console.error("Chat credit spend error:", error));
     }
 

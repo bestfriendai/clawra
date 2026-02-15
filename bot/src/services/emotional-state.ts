@@ -1477,7 +1477,7 @@ Consider: tone, word choice, punctuation, emojis, context, and subtext.
 Reply with ONLY one word from this list: happy, sad, excited, worried, flirty, jealous, needy, playful, angry, loving`;
 
     const response = await client.chat.completions.create({
-      model: "llama-3.3-70b",
+      model: "venice-uncensored",
       messages: [{ role: "user", content: prompt }],
       max_tokens: 10,
       temperature: 0.3,

@@ -473,7 +473,7 @@ export async function extractEnhancedMemory(
 
   try {
     const response = await venice.chat.completions.create({
-      model: "llama-3.3-70b",
+      model: "venice-uncensored",
       messages: [{ role: "user", content: prompt }],
       max_tokens: 1500,
       temperature: 0.1,

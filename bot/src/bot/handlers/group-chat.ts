@@ -180,7 +180,7 @@ export async function handleGroupMessage(ctx: BotContext): Promise<void> {
         telegramId,
         amount: CREDIT_COSTS.GROUP_CHAT_MESSAGE,
         service: "venice",
-        model: "llama-3.3-70b",
+        model: "venice-uncensored",
       });
     }
 
