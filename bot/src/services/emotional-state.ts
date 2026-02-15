@@ -1,3 +1,6 @@
+import { LRUMap } from "../utils/lru-map.js";
+import { convex } from "./convex.js";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Emotional State Engine — rich emotion detection, micro-emotions, emotional
 // memory, escalation tracking, dynamic girlfriend moods, and human-like
@@ -64,27 +67,293 @@ export interface EmotionalSnapshot {
   microEmotions: MicroEmotion[];
   intensity: number;
   timestamp: number;
+  relationshipDay?: number;
+  significantEvent?: string;
+}
+
+export interface MoodDecayState {
+  baseHappiness: number;
+  affectionLevel: number;
+  lastInteractionAt: number;
+  pendingUpset: boolean;
+  jealousyMeter: number;
 }
 
 const EMOTIONAL_MEMORY_MAX = 50;
-const emotionalMemory: EmotionalSnapshot[] = [];
+const MAX_TRACKED_USERS = 5000;
+const emotionalMemory = new Map<number, EmotionalSnapshot[]>();
+const moodStates = new LRUMap<number, MoodDecayState>(MAX_TRACKED_USERS);
+const emotionalHydrationInFlight = new Map<number, Promise<void>>();
+const emotionalHydratedUsers = new Set<number>();
 
-export function recordEmotionalSnapshot(snap: EmotionalSnapshot): void {
-  emotionalMemory.push(snap);
-  if (emotionalMemory.length > EMOTIONAL_MEMORY_MAX) {
-    emotionalMemory.shift();
-  }
+const EMOTION_TYPE_SET: ReadonlySet<string> = new Set<EmotionType>([
+  "happy",
+  "sad",
+  "excited",
+  "worried",
+  "flirty",
+  "jealous",
+  "needy",
+  "playful",
+  "angry",
+  "loving",
+]);
+
+const MICRO_EMOTION_SET: ReadonlySet<string> = new Set<MicroEmotion>([
+  "teasing",
+  "suspicious",
+  "grateful",
+  "proud",
+  "possessive",
+  "nostalgic",
+  "vulnerable",
+  "sarcastic",
+  "overwhelmed",
+  "adoring",
+  "dismissive",
+  "longing",
+  "euphoric",
+  "insecure",
+  "protective",
+  "mischievous",
+]);
+
+const LOVE_INTERACTION_PATTERN = /i love you|love you|ily|i luv you/i;
+
+function clampMoodValue(value: number): number {
+  return Math.max(0, Math.min(100, value));
 }
 
-export function getEmotionalMemory(): ReadonlyArray<EmotionalSnapshot> {
-  return emotionalMemory;
+function getDefaultMoodState(): MoodDecayState {
+  return {
+    baseHappiness: 75,
+    affectionLevel: 70,
+    lastInteractionAt: Date.now(),
+    pendingUpset: false,
+    jealousyMeter: 10,
+  };
+}
+
+export function applyMoodDecay(telegramId: number): MoodDecayState {
+  const state = moodStates.get(telegramId) || getDefaultMoodState();
+  const now = Date.now();
+  const hoursSince = (now - state.lastInteractionAt) / 3_600_000;
+
+  state.baseHappiness = Math.max(
+    20,
+    state.baseHappiness - Math.min(hoursSince * 5, 50)
+  );
+  state.affectionLevel = Math.max(
+    30,
+    state.affectionLevel - Math.min(hoursSince * 3, 30)
+  );
+  state.jealousyMeter = Math.max(
+    0,
+    state.jealousyMeter - Math.min(hoursSince * 1.5, 25)
+  );
+
+  if (hoursSince > 24) {
+    state.pendingUpset = true;
+  }
+
+  state.baseHappiness = clampMoodValue(state.baseHappiness);
+  state.affectionLevel = clampMoodValue(state.affectionLevel);
+  state.jealousyMeter = clampMoodValue(state.jealousyMeter);
+
+  moodStates.set(telegramId, state);
+  return state;
+}
+
+export function recordMoodInteraction(
+  telegramId: number,
+  type: "message" | "selfie" | "love"
+): void {
+  const state = applyMoodDecay(telegramId);
+  switch (type) {
+    case "message":
+      state.baseHappiness += 3;
+      state.affectionLevel += 2;
+      break;
+    case "selfie":
+      state.affectionLevel += 5;
+      break;
+    case "love":
+      state.affectionLevel += 10;
+      state.baseHappiness += 8;
+      break;
+  }
+
+  state.pendingUpset = false;
+  state.lastInteractionAt = Date.now();
+  state.baseHappiness = Math.min(100, clampMoodValue(state.baseHappiness));
+  state.affectionLevel = Math.min(100, clampMoodValue(state.affectionLevel));
+  state.jealousyMeter = Math.min(100, clampMoodValue(state.jealousyMeter));
+  moodStates.set(telegramId, state);
+}
+
+export function getMoodState(telegramId: number): MoodDecayState {
+  return applyMoodDecay(telegramId);
+}
+
+export function checkAndResetUpset(telegramId: number): boolean {
+  const state = applyMoodDecay(telegramId);
+  const wasUpset = state.pendingUpset;
+  if (wasUpset) {
+    state.pendingUpset = false;
+    moodStates.set(telegramId, state);
+  }
+  return wasUpset;
+}
+
+function ensureUserMemory<T>(
+  store: Map<number, T[]>,
+  telegramId: number
+): T[] {
+  const existing = store.get(telegramId);
+  if (existing) {
+    store.delete(telegramId);
+    store.set(telegramId, existing);
+    return existing;
+  }
+
+  if (store.size >= MAX_TRACKED_USERS) {
+    const oldestKey = store.keys().next().value;
+    if (oldestKey !== undefined) {
+      store.delete(oldestKey);
+    }
+  }
+
+  const next: T[] = [];
+  store.set(telegramId, next);
+  return next;
+}
+
+function getUserMemory<T>(store: Map<number, T[]>, telegramId: number): T[] {
+  const existing = store.get(telegramId);
+  if (!existing) {
+    return [];
+  }
+
+  store.delete(telegramId);
+  store.set(telegramId, existing);
+  return existing;
+}
+
+function normalizePersistedSnapshot(snapshot: {
+  emotion: string;
+  intensity: number;
+  microEmotions?: string[];
+  timestamp: number;
+  relationshipDay?: number;
+  significantEvent?: string;
+}): EmotionalSnapshot | null {
+  if (!EMOTION_TYPE_SET.has(snapshot.emotion)) {
+    return null;
+  }
+
+  const emotion = snapshot.emotion as EmotionType;
+  const microEmotions = (snapshot.microEmotions ?? []).filter(
+    (micro): micro is MicroEmotion => MICRO_EMOTION_SET.has(micro)
+  );
+
+  return {
+    emotion,
+    microEmotions,
+    intensity: snapshot.intensity,
+    timestamp: snapshot.timestamp,
+    relationshipDay: snapshot.relationshipDay,
+    significantEvent: snapshot.significantEvent,
+  };
+}
+
+function ensureHydrationStarted(telegramId: number): void {
+  if (emotionalMemory.has(telegramId) || emotionalHydratedUsers.has(telegramId)) {
+    return;
+  }
+
+  if (emotionalHydrationInFlight.has(telegramId)) {
+    return;
+  }
+
+  void hydrateEmotionalMemory(telegramId);
+}
+
+export async function hydrateEmotionalMemory(telegramId: number): Promise<void> {
+  if (emotionalHydratedUsers.has(telegramId)) {
+    return;
+  }
+
+  const inFlight = emotionalHydrationInFlight.get(telegramId);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const hydration = (async () => {
+    try {
+      const snapshots = await convex.getRecentSnapshots(telegramId, EMOTIONAL_MEMORY_MAX);
+      const normalized = snapshots
+        .map((snapshot) => normalizePersistedSnapshot(snapshot))
+        .filter((snapshot): snapshot is EmotionalSnapshot => snapshot !== null)
+        .reverse();
+
+      const current = emotionalMemory.get(telegramId) ?? [];
+      const merged = [...normalized, ...current]
+        .sort((a, b) => a.timestamp - b.timestamp)
+        .slice(-EMOTIONAL_MEMORY_MAX);
+
+      emotionalMemory.set(telegramId, merged);
+    } catch (error) {
+      console.error("Failed to hydrate emotional memory:", error);
+    } finally {
+      emotionalHydrationInFlight.delete(telegramId);
+      emotionalHydratedUsers.add(telegramId);
+    }
+  })();
+
+  emotionalHydrationInFlight.set(telegramId, hydration);
+  return hydration;
+}
+
+export function recordEmotionalSnapshot(
+  telegramId: number,
+  snap: EmotionalSnapshot
+): void {
+  ensureHydrationStarted(telegramId);
+
+  const userMemory = ensureUserMemory(emotionalMemory, telegramId);
+  userMemory.push(snap);
+  if (userMemory.length > EMOTIONAL_MEMORY_MAX) {
+    userMemory.shift();
+  }
+
+  void convex
+    .saveEmotionalSnapshot(telegramId, {
+      emotion: snap.emotion,
+      intensity: snap.intensity,
+      microEmotions: snap.microEmotions,
+      timestamp: snap.timestamp,
+      relationshipDay: snap.relationshipDay,
+      significantEvent: snap.significantEvent,
+    })
+    .catch((error) => {
+      console.error("Failed to persist emotional snapshot:", error);
+    });
+}
+
+export function getEmotionalMemory(
+  telegramId: number
+): ReadonlyArray<EmotionalSnapshot> {
+  ensureHydrationStarted(telegramId);
+  return getUserMemory(emotionalMemory, telegramId);
 }
 
 /** Returns the dominant emotion over the last N snapshots. */
 export function getDominantRecentEmotion(
+  telegramId: number,
   window = 10
 ): { emotion: EmotionType; ratio: number } {
-  const recent = emotionalMemory.slice(-window);
+  ensureHydrationStarted(telegramId);
+  const recent = getUserMemory(emotionalMemory, telegramId).slice(-window);
   if (recent.length === 0) return { emotion: "playful", ratio: 0 };
 
   const counts: Partial<Record<EmotionType, number>> = {};
@@ -105,9 +374,11 @@ export function getDominantRecentEmotion(
 
 /** Detects if emotion is trending in a direction (negative / positive). */
 export function getEmotionalTrajectory(
+  telegramId: number,
   window = 8
 ): "improving" | "declining" | "volatile" | "stable" {
-  const recent = emotionalMemory.slice(-window);
+  ensureHydrationStarted(telegramId);
+  const recent = getUserMemory(emotionalMemory, telegramId).slice(-window);
   if (recent.length < 3) return "stable";
 
   const positiveEmotions: EmotionType[] = [
@@ -630,21 +901,23 @@ function analyzeMessageStructure(message: string): {
 
 // ── Escalation tracking ──────────────────────────────────────────────────────
 
-const escalationWindow: number[] = []; // timestamps of escalation signals
+const escalationWindow = new Map<number, number[]>(); // timestamps of escalation signals
 const ESCALATION_WINDOW_MS = 5 * 60 * 1000; // 5-minute window
 
-function recordEscalationSignal(): void {
-  escalationWindow.push(Date.now());
+function recordEscalationSignal(telegramId: number): void {
+  const userWindow = ensureUserMemory(escalationWindow, telegramId);
+  userWindow.push(Date.now());
   // Prune old entries
   const cutoff = Date.now() - ESCALATION_WINDOW_MS;
-  while (escalationWindow.length > 0 && escalationWindow[0]! < cutoff) {
-    escalationWindow.shift();
+  while (userWindow.length > 0 && userWindow[0]! < cutoff) {
+    userWindow.shift();
   }
 }
 
-function getEscalationLevel(): number {
+function getEscalationLevel(telegramId: number): number {
+  const userWindow = getUserMemory(escalationWindow, telegramId);
   const cutoff = Date.now() - ESCALATION_WINDOW_MS;
-  const recent = escalationWindow.filter((t) => t >= cutoff);
+  const recent = userWindow.filter((t) => t >= cutoff);
   // 0 signals = 0, 5+ signals within window = 1.0
   return Math.min(1, recent.length / 5);
 }
@@ -678,16 +951,19 @@ function detectEscalationSignals(message: string): boolean {
 
 // ── Core emotion detection ───────────────────────────────────────────────────
 
-export function detectUserEmotion(message: string): {
+export function detectUserEmotion(telegramId: number, message: string): {
   emotion: EmotionType;
   confidence: number;
 } {
-  const result = detectUserEmotionFull(message);
+  const result = detectUserEmotionFull(telegramId, message);
   return { emotion: result.emotion, confidence: result.confidence };
 }
 
 /** Full-featured emotion detection with micro-emotions and escalation. */
-export function detectUserEmotionFull(message: string): EmotionDetectionResult {
+export function detectUserEmotionFull(
+  telegramId: number,
+  message: string
+): EmotionDetectionResult {
   const trimmed = message.trim();
   if (!trimmed) {
     return {
@@ -695,9 +971,12 @@ export function detectUserEmotionFull(message: string): EmotionDetectionResult {
       confidence: 0.2,
       microEmotions: [],
       intensity: 0.1,
-      escalation: getEscalationLevel(),
+      escalation: getEscalationLevel(telegramId),
     };
   }
+
+  const isLoveMessage = LOVE_INTERACTION_PATTERN.test(trimmed);
+  recordMoodInteraction(telegramId, isLoveMessage ? "love" : "message");
 
   const struct = analyzeMessageStructure(trimmed);
 
@@ -815,12 +1094,24 @@ export function detectUserEmotionFull(message: string): EmotionDetectionResult {
 
   // ── Escalation ─────────────────────────────────────────────────────────
   if (detectEscalationSignals(trimmed)) {
-    recordEscalationSignal();
+    recordEscalationSignal(telegramId);
   }
-  const escalation = getEscalationLevel();
+  const escalation = getEscalationLevel(telegramId);
+
+  const moodState = applyMoodDecay(telegramId);
+  if (bestEmotion === "jealous") {
+    moodState.jealousyMeter = clampMoodValue(moodState.jealousyMeter + 14);
+  } else if (
+    microEmotions.includes("suspicious") ||
+    microEmotions.includes("possessive") ||
+    microEmotions.includes("insecure")
+  ) {
+    moodState.jealousyMeter = clampMoodValue(moodState.jealousyMeter + 7);
+  }
+  moodStates.set(telegramId, moodState);
 
   // ── Record to emotional memory ─────────────────────────────────────────
-  recordEmotionalSnapshot({
+  recordEmotionalSnapshot(telegramId, {
     emotion: bestEmotion,
     microEmotions,
     intensity,
@@ -882,6 +1173,7 @@ export function shouldInitiateEmotionalCheck(
 // Much more specific and actionable than the original.
 
 export function getEmotionalResponse(
+  telegramId: number,
   userEmotion: EmotionType,
   girlfriendPersonality: string
 ): string {
@@ -890,9 +1182,9 @@ export function getEmotionalResponse(
     : "Stay in her core personality while following the above guidance.";
 
   // Pull additional context from emotional memory
-  const trajectory = getEmotionalTrajectory();
-  const dominant = getDominantRecentEmotion();
-  const escalation = getEscalationLevel();
+  const trajectory = getEmotionalTrajectory(telegramId);
+  const dominant = getDominantRecentEmotion(telegramId);
+  const escalation = getEscalationLevel(telegramId);
 
   let trajectoryHint = "";
   if (trajectory === "declining") {
@@ -1022,6 +1314,7 @@ const MOOD_TRANSITIONS: Record<EmotionType, { targets: EmotionType[]; weights: n
 };
 
 export function shouldTransitionMood(
+  telegramId: number,
   currentMood: EmotionType,
   messagesInMood: number
 ): EmotionType | null {
@@ -1029,7 +1322,7 @@ export function shouldTransitionMood(
   const baseProbability = Math.min(0.5, 0.05 + messagesInMood * 0.04);
 
   // Escalation suppresses random transitions (emotions lock in when heated)
-  const escalation = getEscalationLevel();
+  const escalation = getEscalationLevel(telegramId);
   const adjustedProbability = baseProbability * (1 - escalation * 0.6);
 
   if (Math.random() >= adjustedProbability) return null;
@@ -1124,6 +1417,7 @@ const SUBJECT_CHANGES_BY_EMOTION: Record<string, string[]> = {
 };
 
 export function getHumanBehavior(
+  telegramId: number,
   context?: {
     timeOfDay?: string;
     recentEmotion?: EmotionType;
@@ -1152,7 +1446,7 @@ export function getHumanBehavior(
   const subjectChangeBaseProb = Math.min(0.20, 0.08 + messageCount * 0.005);
 
   // Don't do random behavior during heavy emotional moments
-  const escalation = getEscalationLevel();
+  const escalation = getEscalationLevel(telegramId);
   if (escalation > 0.4) return { type: null, message: null };
 
   // Suppress during sad/angry/worried (less likely to be random)
@@ -1434,6 +1728,7 @@ export function getDefaultGirlfriendMood(): GirlfriendMoodState {
 // ── LLM-based emotion detection (fallback/enhancement) ───────────────────────
 
 export async function detectEmotionWithLLM(
+  telegramId: number,
   message: string,
   recentContext: string[]
 ): Promise<EmotionType> {
@@ -1459,9 +1754,9 @@ export async function detectEmotionWithLLM(
       "loving",
     ];
 
-    const trajectory = getEmotionalTrajectory();
-    const dominant = getDominantRecentEmotion();
-    const escalation = getEscalationLevel();
+    const trajectory = getEmotionalTrajectory(telegramId);
+    const dominant = getDominantRecentEmotion(telegramId);
+    const escalation = getEscalationLevel(telegramId);
 
     const contextBlock = recentContext.slice(-5).join(" | ");
 

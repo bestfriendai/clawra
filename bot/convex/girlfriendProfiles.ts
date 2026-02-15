@@ -1,6 +1,64 @@
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
+type ProfileEnvironment = {
+  homeDescription: string;
+  bedroomDetails: string;
+  favoriteLocations: string[];
+  currentOutfit?: string;
+  currentOutfitDay?: string;
+};
+
+function buildDefaultEnvironment(personality: string): ProfileEnvironment {
+  const normalized = personality.toLowerCase();
+
+  if (normalized.includes("shy") || normalized.includes("sweet")) {
+    return {
+      homeDescription: "quiet one-bedroom apartment with a plant corner and soft neutral decor",
+      bedroomDetails: "fairy lights over a simple headboard, slightly messy cotton sheets, stack of books on the nightstand",
+      favoriteLocations: ["cozy cafe by the window", "nearby park path", "local bookstore corner"],
+    };
+  }
+
+  if (normalized.includes("bold") || normalized.includes("dominant")) {
+    return {
+      homeDescription: "modern loft with clean lines, big mirrors, and warm accent lighting",
+      bedroomDetails: "dark velvet throw, sleek lamp glow, unmade bed with textured pillows",
+      favoriteLocations: ["rooftop lounge", "upscale cocktail bar", "late-night city street"],
+    };
+  }
+
+  if (normalized.includes("caring") || normalized.includes("nurturing")) {
+    return {
+      homeDescription: "warm apartment with layered blankets, framed photos, and a lived-in kitchen",
+      bedroomDetails: "soft bedside lamp, cream duvet, folded hoodie at the foot of the bed",
+      favoriteLocations: ["farmers market", "sunny neighborhood cafe", "quiet riverside walk"],
+    };
+  }
+
+  if (normalized.includes("sarcastic") || normalized.includes("witty")) {
+    return {
+      homeDescription: "eclectic city apartment with records, posters, and mismatched cozy furniture",
+      bedroomDetails: "string lights, dark bedding, laptop open on a cluttered side table",
+      favoriteLocations: ["indie coffee shop", "art gallery district", "neon-lit late-night diner"],
+    };
+  }
+
+  if (normalized.includes("bubbly") || normalized.includes("energetic")) {
+    return {
+      homeDescription: "bright apartment with colorful pillows, fresh flowers, and sunlight through big windows",
+      bedroomDetails: "pastel throw blanket, mirror with sticky notes, playful clutter on shelves",
+      favoriteLocations: ["trendy brunch spot", "boardwalk promenade", "busy downtown shopping street"],
+    };
+  }
+
+  return {
+    homeDescription: "small apartment with a plant corner and cozy lived-in details",
+    bedroomDetails: "fairy lights, slightly messy sheets, soft bedside lamp and personal clutter",
+    favoriteLocations: ["coffee shop", "city park", "balcony with skyline view"],
+  };
+}
+
 async function ensureProfileDefaults(
   ctx: any,
   profile: any,
@@ -10,11 +68,17 @@ async function ensureProfileDefaults(
 
   const isActive = profile.isActive ?? true;
   const slotIndex = profile.slotIndex ?? fallbackSlotIndex;
+  const environment = profile.environment ?? buildDefaultEnvironment(profile.personality || "");
 
-  if (profile.isActive === undefined || profile.slotIndex === undefined) {
+  if (
+    profile.isActive === undefined ||
+    profile.slotIndex === undefined ||
+    profile.environment === undefined
+  ) {
     await ctx.db.patch(profile._id, {
       isActive,
       slotIndex,
+      environment,
       updatedAt: Date.now(),
     });
   }
@@ -23,6 +87,7 @@ async function ensureProfileDefaults(
     ...profile,
     isActive,
     slotIndex,
+    environment,
   };
 }
 
@@ -223,6 +288,13 @@ export const create = mutation({
     eyeColor: v.optional(v.string()),
     personality: v.string(),
     backstory: v.optional(v.string()),
+    environment: v.optional(v.object({
+      homeDescription: v.string(),
+      bedroomDetails: v.string(),
+      favoriteLocations: v.array(v.string()),
+      currentOutfit: v.optional(v.string()),
+      currentOutfitDay: v.optional(v.string()),
+    })),
   },
   handler: async (ctx, args) => {
     if (args.age < 18) {
@@ -255,6 +327,7 @@ export const create = mutation({
 
     return await ctx.db.insert("girlfriendProfiles", {
       ...args,
+      environment: args.environment ?? buildDefaultEnvironment(args.personality),
       isActive: true,
       slotIndex: nextSlotIndex,
       referenceImageUrl: undefined,
@@ -281,6 +354,13 @@ export const update = mutation({
     lastImageUrl: v.optional(v.string()),
     voiceId: v.optional(v.string()),
     isConfirmed: v.optional(v.boolean()),
+    environment: v.optional(v.object({
+      homeDescription: v.string(),
+      bedroomDetails: v.string(),
+      favoriteLocations: v.array(v.string()),
+      currentOutfit: v.optional(v.string()),
+      currentOutfitDay: v.optional(v.string()),
+    })),
   },
   handler: async (ctx, { telegramId, ...updates }) => {
     const profile = await getActiveByTelegramId(ctx, telegramId);

@@ -1,6 +1,19 @@
 import { NextFunction } from "grammy";
 import { convex } from "../../services/convex.js";
 import type { BotContext } from "../../types/context.js";
+import { LRUMap } from "../../utils/lru-map.js";
+
+const lastActiveUpdated = new LRUMap<number, number>(5000);
+const DEBOUNCE_MS = 60_000;
+
+function maybeUpdateLastActive(telegramId: number): void {
+  const now = Date.now();
+  const last = lastActiveUpdated.get(telegramId) ?? 0;
+  if (now - last < DEBOUNCE_MS) return;
+
+  lastActiveUpdated.set(telegramId, now);
+  void convex.updateLastActive(telegramId);
+}
 
 export async function authMiddleware(
   ctx: BotContext,
@@ -9,7 +22,11 @@ export async function authMiddleware(
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
-  const user = await convex.getUser(telegramId);
+  const [user, profile] = await Promise.all([
+    convex.getUser(telegramId),
+    convex.getActiveProfile(telegramId),
+  ]);
+
   if (user) {
     if (user.isBanned) {
       await ctx.reply("Your account has been suspended.");
@@ -22,11 +39,9 @@ export async function authMiddleware(
       tier: user.tier,
       isBanned: user.isBanned,
     };
-    // Update last active in background
-    convex.updateLastActive(telegramId).catch(() => {});
+    maybeUpdateLastActive(telegramId);
   }
 
-  const profile = await convex.getActiveProfile(telegramId);
   if (profile) {
     ctx.girlfriend = {
       telegramId: profile.telegramId,

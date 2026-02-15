@@ -44,17 +44,43 @@ function getDayStart(timestamp: number): number {
   return date.getTime();
 }
 
+type AutoEventMeta = {
+  source?: string;
+};
+
 export async function checkAndRecordAutoEvent(
   telegramId: number,
   eventType: RelationshipEventType,
   description: string
+): Promise<void>;
+export async function checkAndRecordAutoEvent(
+  convexClient: typeof convex,
+  telegramId: number,
+  eventType: RelationshipEventType,
+  meta?: AutoEventMeta
+): Promise<void>;
+export async function checkAndRecordAutoEvent(
+  arg1: number | typeof convex,
+  arg2: number | RelationshipEventType,
+  arg3: string | RelationshipEventType,
+  arg4?: AutoEventMeta
 ): Promise<void> {
+  const isNewCall = typeof arg1 !== "number";
+  const client = isNewCall ? arg1 : convex;
+  const telegramId = isNewCall ? (arg2 as number) : arg1;
+  const eventType = (isNewCall ? arg3 : arg2) as RelationshipEventType;
+  const description = isNewCall
+    ? arg4?.source
+      ? `${AUTO_EVENTS[eventType].title} (${arg4.source})`
+      : AUTO_EVENTS[eventType].title
+    : (arg3 as string);
+
   try {
-    const existing = await convex.getRelationshipEventsByType(telegramId, eventType);
+    const existing = await client.getRelationshipEventsByType(telegramId, eventType);
     if (existing.length > 0) return;
 
     const config = AUTO_EVENTS[eventType];
-    await convex.addRelationshipEvent(
+    await client.addRelationshipEvent(
       telegramId,
       eventType,
       description || config.title,

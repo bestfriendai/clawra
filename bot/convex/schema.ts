@@ -11,7 +11,12 @@ export default defineSchema({
     isBanned: v.boolean(),
     createdAt: v.number(),
     lastActive: v.number(),
-  }).index("by_telegramId", ["telegramId"]),
+  })
+    .index("by_telegramId", ["telegramId"])
+    .index("by_createdAt", ["createdAt"])
+    .index("by_lastActive", ["lastActive"])
+    .index("by_isBanned", ["isBanned"])
+    .index("by_isBanned_lastActive", ["isBanned", "lastActive"]),
 
   girlfriendProfiles: defineTable({
     telegramId: v.number(),
@@ -32,12 +37,20 @@ export default defineSchema({
     creationMethod: v.optional(v.string()),
     uploadedPhotoUrls: v.optional(v.array(v.string())),
     distinctiveFeatures: v.optional(v.string()),
+    environment: v.optional(v.object({
+      homeDescription: v.string(),
+      bedroomDetails: v.string(),
+      favoriteLocations: v.array(v.string()),
+      currentOutfit: v.optional(v.string()),
+      currentOutfitDay: v.optional(v.string()),
+    })),
     isConfirmed: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_telegramId", ["telegramId"])
-    .index("by_user_active", ["telegramId", "isActive"]),
+    .index("by_user_active", ["telegramId", "isActive"])
+    .index("by_isConfirmed", ["isConfirmed"]),
 
   userPreferences: defineTable({
     telegramId: v.number(),
@@ -58,7 +71,17 @@ export default defineSchema({
     balance: v.number(),
     lifetimeSpent: v.number(),
     lifetimePurchased: v.number(),
-  }).index("by_telegramId", ["telegramId"]),
+  })
+    .index("by_telegramId", ["telegramId"])
+    .index("by_lifetimeSpent", ["lifetimeSpent"]),
+
+  freeTierUsage: defineTable({
+    telegramId: v.number(),
+    date: v.string(),
+    messages: v.number(),
+    selfies: v.number(),
+    voiceNotes: v.number(),
+  }).index("by_telegramId_date", ["telegramId", "date"]),
 
   transactions: defineTable({
     telegramId: v.number(),
@@ -74,7 +97,9 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_telegramId", ["telegramId"])
-    .index("by_paymentRef", ["paymentRef"]),
+    .index("by_paymentRef", ["paymentRef"])
+    .index("by_createdAt", ["createdAt"])
+    .index("by_type_createdAt", ["type", "createdAt"]),
 
   subscriptions: defineTable({
     telegramId: v.number(),
@@ -97,7 +122,9 @@ export default defineSchema({
     videoUrl: v.optional(v.string()),
     voiceUrl: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_telegramId_createdAt", ["telegramId", "createdAt"]),
+  })
+    .index("by_telegramId_createdAt", ["telegramId", "createdAt"])
+    .index("by_createdAt", ["createdAt"]),
 
   retentionStates: defineTable({
     telegramId: v.number(),
@@ -121,7 +148,9 @@ export default defineSchema({
     status: v.string(),
     resultUrl: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_telegramId", ["telegramId"]),
+  })
+    .index("by_telegramId", ["telegramId"])
+    .index("by_createdAt", ["createdAt"]),
 
   depositWallets: defineTable({
     telegramId: v.number(),
@@ -142,6 +171,18 @@ export default defineSchema({
     extractedAt: v.optional(v.number()),
     createdAt: v.number(),
   }).index("by_telegramId", ["telegramId"]),
+
+  emotionalSnapshots: defineTable({
+    telegramId: v.number(),
+    emotion: v.string(),
+    intensity: v.number(),
+    microEmotions: v.optional(v.array(v.string())),
+    timestamp: v.number(),
+    relationshipDay: v.optional(v.number()),
+    significantEvent: v.optional(v.string()),
+  })
+    .index("by_telegramId", ["telegramId"])
+    .index("by_telegramId_timestamp", ["telegramId", "timestamp"]),
 
   processedChainTxs: defineTable({
     txHash: v.string(),
@@ -201,6 +242,15 @@ export default defineSchema({
     description: v.string(),
     isRecurring: v.boolean(),
   }).index("by_user", ["telegramId"]),
+
+  relationshipXP: defineTable({
+    telegramId: v.number(),
+    totalXP: v.number(),
+    level: v.number(),
+    levelName: v.string(),
+    lastXPGain: v.number(),
+    streakDays: v.number(),
+  }).index("by_telegramId", ["telegramId"]),
 
   referrals: defineTable({
     referrerTelegramId: v.number(),

@@ -26,12 +26,17 @@ import {
   getStageUnlockMessage,
   type RetentionState,
 } from "../../services/retention.js";
+import {
+  checkForConflictTrigger,
+  processConflictMessage,
+  hasActiveConflict,
+} from "../../services/conflict-loops.js";
 import { CREDIT_COSTS, UPSELL_INTERVAL } from "../../config/pricing.js";
 import { env } from "../../config/env.js";
 import { sendAsMultipleTexts } from "../../utils/message-sender.js";
 import { sanitizeForAI, sanitizeUserInput } from "../../utils/sanitize.js";
 import { getModerationResponse, isProhibitedContent } from "../../utils/moderation.js";
-import { checkMilestones } from "../../services/milestones.js";
+import { checkMilestones, checkBadgesAfterMessage, formatBadgeAnnouncement } from "../../services/milestones.js";
 import { checkRewardTriggers } from "../../services/reward-system.js";
 import { isFantasyStopRequest, getFantasyAugment } from "../handlers/fantasy.js";
 import { getOutOfCreditsMessage, shouldShowUpsell } from "../../services/upsell.js";
@@ -46,12 +51,23 @@ import {
   shouldShareVulnerability,
 } from "../../services/relationship-deepening.js";
 import { setSessionValue, getSessionValue } from "../../services/session-store.js";
+import { findRelevantMemories } from "../../services/memory.js";
 import {
   analyzePsychologicalSignals,
   getCrisisSupportMessage,
 } from "../../services/psychology-guardrails.js";
+import { awardXP, getLevelUpMessage } from "../../services/relationship-xp.js";
 import { enqueueUserMessageTask } from "../../services/user-message-queue.js";
 import { getOrCreateConversationThreadId } from "../../services/conversation-thread.js";
+import { LRUMap } from "../../utils/lru-map.js";
+import { resolveEnvironmentContinuity } from "../../services/image-intelligence.js";
+import {
+  detectNewsReaction,
+  pickAmbientClip,
+  REACTION_CLIPS,
+  type AmbientClipType,
+  type NewsReaction,
+} from "../../services/voice/ambient-clips.js";
 
 const venice = new OpenAI({
   apiKey: env.VENICE_API_KEY,
@@ -59,22 +75,23 @@ const venice = new OpenAI({
 });
 
 // Track message count per user for periodic memory extraction
-// Use LRU-style eviction to prevent unbounded memory growth
 const MAX_TRACKED_USERS = 5000;
-const messageCounters = new Map<number, number>();
-const moodTracker = new Map<number, Mood[]>();
-const lastImageSent = new Map<number, string>();
-const lastImagePrompt = new Map<number, string>();
-
-function trackWithEviction<V>(map: Map<number, V>, key: number, value: V): void {
-  if (map.size >= MAX_TRACKED_USERS && !map.has(key)) {
-    const firstKey = map.keys().next().value;
-    if (firstKey !== undefined) map.delete(firstKey);
-  }
-  map.set(key, value);
-}
+const messageCounters = new LRUMap<number, number>(MAX_TRACKED_USERS);
+const moodTracker = new LRUMap<number, Mood[]>(MAX_TRACKED_USERS);
+const lastImageSent = new LRUMap<number, string>(MAX_TRACKED_USERS);
+const lastImagePrompt = new LRUMap<number, string>(MAX_TRACKED_USERS);
+const REACTION_CLIP_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 type Mood = "playful" | "romantic" | "sexual" | "casual" | "emotional";
+
+interface CachedVoiceClip {
+  url: string;
+  durationMs: number;
+  expiresAt: number;
+}
+
+const reactionClipCache = new Map<string, CachedVoiceClip>();
+const reactionClipInflight = new Map<string, Promise<CachedVoiceClip>>();
 
 // Auto-trigger selfie cue patterns — disabled to stop selfie spam.
 // Kept for reference in case we want to re-enable with stricter logic.
@@ -194,11 +211,137 @@ function detectMood(text: string): Mood {
   return "casual";
 }
 
+function mapMoodToAmbientKey(mood: Mood): string {
+  switch (mood) {
+    case "playful":
+      return "happy";
+    case "romantic":
+      return "flirty";
+    case "sexual":
+      return "excited";
+    case "emotional":
+      return "sad";
+    default:
+      return "neutral";
+  }
+}
+
+function getAmbientEmotion(clipType: AmbientClipType): string | undefined {
+  switch (clipType) {
+    case "excited":
+      return "excited";
+    case "sigh":
+      return "sad";
+    case "giggle":
+      return "happy";
+    default:
+      return undefined;
+  }
+}
+
+function getReactionCacheKey(reaction: NewsReaction, voiceProfileId: string): string {
+  return `${reaction}:${voiceProfileId}`;
+}
+
+async function getOrCreateReactionClip(
+  telegramId: number,
+  voiceProfile: ReturnType<typeof getDefaultVoiceProfile>,
+  reaction: NewsReaction
+): Promise<CachedVoiceClip> {
+  const key = getReactionCacheKey(reaction, voiceProfile.id);
+  const cached = reactionClipCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached;
+  }
+
+  const inflight = reactionClipInflight.get(key);
+  if (inflight) {
+    return inflight;
+  }
+
+  const clipConfig = REACTION_CLIPS[reaction];
+  const generated = generateVoiceNote(
+    telegramId,
+    clipConfig.textPrompt,
+    undefined,
+    voiceProfile,
+    clipConfig.emotion
+  )
+    .then((audio) => {
+      const entry: CachedVoiceClip = {
+        url: audio.url,
+        durationMs: audio.duration_ms,
+        expiresAt: Date.now() + REACTION_CLIP_CACHE_TTL_MS,
+      };
+      reactionClipCache.set(key, entry);
+      return entry;
+    })
+    .finally(() => {
+      reactionClipInflight.delete(key);
+    });
+
+  reactionClipInflight.set(key, generated);
+  return generated;
+}
+
+function warmReactionClipLibrary(
+  telegramId: number,
+  voiceProfile: ReturnType<typeof getDefaultVoiceProfile>
+): void {
+  (Object.keys(REACTION_CLIPS) as NewsReaction[]).forEach((reaction) => {
+    void getOrCreateReactionClip(telegramId, voiceProfile, reaction).catch(() => {});
+  });
+}
+
+async function maybeSendAmbientOrReactionClip(params: {
+  ctx: BotContext;
+  telegramId: number;
+  userMessage: string;
+  mood: Mood;
+  voiceProfile: ReturnType<typeof getDefaultVoiceProfile>;
+  skipAmbient: boolean;
+}): Promise<void> {
+  const { ctx, telegramId, userMessage, mood, voiceProfile, skipAmbient } = params;
+
+  warmReactionClipLibrary(telegramId, voiceProfile);
+
+  const reaction = detectNewsReaction(userMessage);
+  if (reaction) {
+    const reactionClip = await getOrCreateReactionClip(telegramId, voiceProfile, reaction);
+    await ctx.replyWithVoice(reactionClip.url, {
+      duration: Math.max(1, Math.ceil(reactionClip.durationMs / 1000)),
+    });
+    return;
+  }
+
+  if (skipAmbient) {
+    return;
+  }
+
+  const ambientMood = mapMoodToAmbientKey(mood);
+  const ambientClip = pickAmbientClip(ambientMood);
+  if (!ambientClip) {
+    return;
+  }
+
+  const ambientAudio = await generateVoiceNote(
+    telegramId,
+    ambientClip.textPrompt,
+    undefined,
+    voiceProfile,
+    getAmbientEmotion(ambientClip.type)
+  );
+
+  await ctx.replyWithVoice(ambientAudio.url, {
+    duration: Math.max(1, Math.ceil(ambientAudio.duration_ms / 1000)),
+  });
+}
+
 function trackMood(telegramId: number, userMessage: string, replyText: string): Mood[] {
   const mood = detectMood(`${userMessage}\n${replyText}`);
   const history = moodTracker.get(telegramId) || [];
   const updated = [...history, mood].slice(-5);
-  trackWithEviction(moodTracker, telegramId, updated);
+  moodTracker.set(telegramId, updated);
   setSessionValue(telegramId, "moodTracker", updated).catch(() => {});
   return updated;
 }
@@ -301,6 +444,7 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
       ctx,
       messages: ["mmm i love that 😈 let's do it babe..."],
     });
+    return;
   }
   if (!ctx.girlfriend?.isConfirmed || !ctx.girlfriend.referenceImageUrl) {
     await ctx.reply(
@@ -317,15 +461,17 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
     }
   }
 
-    const explicitSelfieRequest = isSelfieRequest(userMessageRaw);
-    if (explicitSelfieRequest) {
-      trackEvent(telegramId, EVENTS.SELFIE_REQUESTED);
-    }
-    const chargeChatCredit = !explicitSelfieRequest;
+  const explicitSelfieRequest = isSelfieRequest(userMessageRaw);
+  const explicitVoiceRequest = isVoiceRequest(userMessageRaw);
+  if (explicitSelfieRequest) {
+    trackEvent(telegramId, EVENTS.SELFIE_REQUESTED);
+  }
+  const chargeChatCredit = !explicitSelfieRequest;
 
   try {
-    const [memoryFacts, history, rawRetention, threadId] = await Promise.all([
+    const [memoryFacts, recalledMemories, history, rawRetention, threadId] = await Promise.all([
       loadMemoryFacts(telegramId),
+      findRelevantMemories(telegramId, userMessageRaw),
       convex.getRecentMessages(telegramId, 30),
       convex.getRetentionState(telegramId),
       getOrCreateConversationThreadId(telegramId),
@@ -411,8 +557,14 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
       effectiveUserMessage = `[STYLE NOTE: call him "${petName}" naturally in this response.]\n${effectiveUserMessage}`;
     }
 
+    checkForConflictTrigger(telegramId);
+    if (hasActiveConflict(telegramId)) {
+      processConflictMessage(telegramId, userMessage);
+    }
+
     const replyMessages = normalizeMessages(
       await chatWithGirlfriend(
+        telegramId,
         ctx.girlfriend,
         messageHistory,
         effectiveUserMessage,
@@ -422,7 +574,8 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
           streak: updatedRetention.streak,
         },
         psychologySignals,
-        threadId
+        threadId,
+        recalledMemories
       )
     );
     const joinedReply = replyMessages.join("\n");
@@ -498,8 +651,24 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
     let imagePrompt = "";
     let selfieNsfw = false;
     if (shouldGenerateImage) {
+      const environmentResolution = resolveEnvironmentContinuity(ctx.girlfriend);
+      const profileForPrompt = environmentResolution.didChange
+        ? {
+            ...ctx.girlfriend,
+            environment: environmentResolution.environment,
+          }
+        : ctx.girlfriend;
+
+      if (environmentResolution.didChange) {
+        ctx.girlfriend = profileForPrompt;
+        await convex.updateProfile({
+          telegramId,
+          environment: environmentResolution.environment,
+        });
+      }
+
       const built = await buildPromptFromConversation(
-        ctx.girlfriend,
+        profileForPrompt,
         userMessageRaw,
         joinedReply,
         moods[moods.length - 1] || "casual"
@@ -649,6 +818,8 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
     }
 
     if (shouldGenerateImage && referenceForImage) {
+      let imageGenerated = false;
+      let imageCreditsCharged = false;
       try {
         if (!env.FREE_MODE) {
           await convex.spendCredits({
@@ -658,6 +829,7 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
             model: selfieNsfw ? "hunyuan-v3-edit" : "grok-edit",
             falCostUsd: selfieNsfw ? 0.09 : 0.02,
           });
+          imageCreditsCharged = true;
         }
 
         await ctx.replyWithChatAction("upload_photo");
@@ -667,10 +839,11 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
           imagePrompt,
           selfieNsfw
         );
+        imageGenerated = true;
 
         imageUrl = result.url;
-        trackWithEviction(lastImageSent, telegramId, result.url);
-        trackWithEviction(lastImagePrompt, telegramId, imagePrompt);
+        lastImageSent.set(telegramId, result.url);
+        lastImagePrompt.set(telegramId, imagePrompt);
         setSessionValue(telegramId, "lastImageSent", result.url).catch(() => {});
         setSessionValue(telegramId, "lastImagePrompt", imagePrompt).catch(() => {});
         await ctx.replyWithPhoto(result.url);
@@ -753,6 +926,14 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
         }
       } catch (err) {
         console.error("Image generation error:", err);
+        if (!env.FREE_MODE && imageCreditsCharged && !imageGenerated) {
+          await convex.addCredits({
+            telegramId,
+            amount: selfieCreditCost,
+            paymentMethod: "refund",
+            paymentRef: `refund_chat_image_generation_failed_${telegramId}_${Date.now()}`,
+          });
+        }
         await sendAsMultipleTexts({
           ctx,
           messages: [randomItem(IMAGE_FAIL_EXCUSES)],
@@ -761,6 +942,8 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
     }
 
     if (isVideoRequest(userMessageRaw) && ctx.girlfriend.referenceImageUrl) {
+      let videoGenerated = false;
+      let videoCreditsCharged = false;
       try {
         await ctx.replyWithChatAction("upload_video");
 
@@ -771,10 +954,12 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
             service: "fal.ai",
             model: "grok-imagine-video",
           });
+          videoCreditsCharged = true;
         }
 
         const videoPrompt = await buildVideoPrompt(ctx.girlfriend, userMessageRaw);
         const video = await generateVideoFromImage(ctx.girlfriend.referenceImageUrl, videoPrompt);
+        videoGenerated = true;
 
         await ctx.replyWithVideo(video.url, {
           caption: `from ${ctx.girlfriend.name} 💕`,
@@ -795,13 +980,18 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
           ctx,
           messages: ["ugh the video didn't work babe, my phone is being weird 😭"],
         });
-        if (!env.FREE_MODE) {
-          await convex.refundCredits(telegramId, CREDIT_COSTS.VIDEO_SHORT, "fal.ai");
+        if (!env.FREE_MODE && videoCreditsCharged && !videoGenerated) {
+          await convex.addCredits({
+            telegramId,
+            amount: CREDIT_COSTS.VIDEO_SHORT,
+            paymentMethod: "refund",
+            paymentRef: `refund_chat_video_generation_failed_${telegramId}_${Date.now()}`,
+          });
         }
       }
     }
 
-    if (isVoiceRequest(userMessageRaw)) {
+    if (explicitVoiceRequest) {
       try {
         await ctx.replyWithChatAction("record_voice");
 
@@ -823,7 +1013,12 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
         const voiceProfile = ctx.girlfriend?.voiceId
           ? getVoiceProfile(ctx.girlfriend.voiceId)
           : getDefaultVoiceProfile();
-        const audio = await generateVoiceNote(voiceText, undefined, voiceProfile);
+        const audio = await generateVoiceNote(
+          telegramId,
+          voiceText,
+          undefined,
+          voiceProfile
+        );
 
         const response = await fetch(audio.url);
         const buffer = Buffer.from(await response.arrayBuffer());
@@ -846,6 +1041,20 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
         console.error("Voice note error:", err);
       }
     }
+
+    const ambientVoiceProfile = ctx.girlfriend?.voiceId
+      ? getVoiceProfile(ctx.girlfriend.voiceId)
+      : getDefaultVoiceProfile();
+    void maybeSendAmbientOrReactionClip({
+      ctx,
+      telegramId,
+      userMessage: userMessageRaw,
+      mood: detectedMood,
+      voiceProfile: ambientVoiceProfile,
+      skipAmbient: explicitVoiceRequest,
+    }).catch((error) => {
+      console.error("Ambient/reaction voice clip error:", error);
+    });
 
     // Fire-and-forget persistence — don't block the user
     convex.addMessage({
@@ -886,7 +1095,7 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
     }
 
     const count = (messageCounters.get(telegramId) || 0) + 1;
-    trackWithEviction(messageCounters, telegramId, count);
+  messageCounters.set(telegramId, count);
     setSessionValue(telegramId, "messageCount", count).catch(() => {});
 
     if (count % 5 === 0) {
@@ -921,6 +1130,30 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
     }
 
     trackEvent(telegramId, EVENTS.CHAT_SENT);
+
+    void awardXP(telegramId, "message")
+      .then(async (xpResult) => {
+        if (xpResult.leveledUp && xpResult.levelName) {
+          await sendAsMultipleTexts({
+            ctx,
+            messages: [getLevelUpMessage(xpResult.levelName)],
+          });
+        }
+
+        const badge = await checkBadgesAfterMessage(telegramId, {
+          messageCount: retentionForPersistence.messageCount,
+          streakDays: retentionForPersistence.streak,
+          selfieGenerated: Boolean(imageUrl),
+          levelName: xpResult.levelName,
+        });
+        if (badge) {
+          await sendAsMultipleTexts({
+            ctx,
+            messages: [formatBadgeAnnouncement(badge)],
+          });
+        }
+      })
+      .catch((error: unknown) => console.error("Relationship XP award error:", error));
   } catch (err) {
     console.error("Chat error:", err);
     await sendAsMultipleTexts({

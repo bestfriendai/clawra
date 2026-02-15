@@ -1,8 +1,6 @@
 import type { BotContext } from "../../types/context.js";
 import { convex } from "../../services/convex.js";
 import { TRIAL_CREDITS, REFERRAL_BONUS } from "../../config/pricing.js";
-import { startWelcomeSequence } from "../../services/welcome-sequence.js";
-import { checkAndRecordAutoEvent } from "../../services/relationship-events.js";
 import { processReferral } from "../../services/referral-engine.js";
 
 export async function handleStart(ctx: BotContext) {
@@ -33,7 +31,7 @@ export async function handleStart(ctx: BotContext) {
       return;
     }
     // User exists but no confirmed profile — start setup
-    await ctx.reply("Welcome back. Let's finish setup with buttons.");
+    await ctx.reply("Welcome back. Let's finish setup in chat.");
     await ctx.conversation.enter("girlfriendSetup");
     return;
   }
@@ -65,21 +63,9 @@ export async function handleStart(ctx: BotContext) {
 
   await ctx.reply(
     `Welcome ${firstName || "there"}.\n\n` +
-      `Let's build your AI girlfriend profile with a guided button flow (name, look, personality, and preview).\n` +
+      `Let's build your AI girlfriend profile through a quick chat (your type, vibe, and first preview).\n` +
       `You start with ${TRIAL_CREDITS}${gotReferralBonus ? ` + ${REFERRAL_BONUS} bonus` : ""} credits.`
   );
 
   await ctx.conversation.enter("girlfriendSetup");
-
-  const confirmedProfile = await convex.getProfile(telegramId);
-  if (confirmedProfile?.isConfirmed) {
-    void checkAndRecordAutoEvent(
-      telegramId,
-      "first_meet",
-      `You two met and started your story with ${confirmedProfile.name}`
-    );
-
-    const bot = { api: ctx.api };
-    startWelcomeSequence(bot, telegramId);
-  }
 }

@@ -122,6 +122,23 @@ export interface PromptEnhancementProfile {
   profile?: Partial<Pick<GirlfriendProfile, "name" | "race" | "bodyType" | "hairColor" | "hairStyle">>;
 }
 
+export type TimeOfDay = "morning" | "afternoon" | "evening" | "night";
+
+export interface ProfileEnvironmentContext {
+  homeDescription: string;
+  bedroomDetails: string;
+  favoriteLocations: string[];
+  currentOutfit?: string;
+  currentOutfitDay?: string;
+}
+
+export interface ResolvedEnvironmentContext {
+  environment: ProfileEnvironmentContext;
+  timeOfDay: TimeOfDay;
+  dayKey: string;
+  didChange: boolean;
+}
+
 function hasAnyTerm(text: string, terms: string[]): boolean {
   return terms.some((term) => text.includes(term));
 }
@@ -235,6 +252,162 @@ export function getTimeOfDayLighting(options?: {
   if (hour >= 16 && hour < 19) return "golden hour sunset glow, warm orange tones";
   if (hour >= 19 && hour < 22) return "warm lamplight, cozy ambient glow, soft shadows";
   return "dim moody lighting, soft bedside lamp, intimate atmosphere";
+}
+
+export function getTimeOfDay(options?: {
+  timezoneOffsetMinutes?: number;
+  now?: Date;
+}): TimeOfDay {
+  const now = options?.now ?? new Date();
+  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const shiftedMinutes =
+    typeof options?.timezoneOffsetMinutes === "number"
+      ? utcMinutes + options.timezoneOffsetMinutes
+      : utcMinutes;
+  const hour = Math.floor(toPositiveMod(shiftedMinutes, 24 * 60) / 60);
+
+  if (hour >= 5 && hour < 12) return "morning";
+  if (hour >= 12 && hour < 17) return "afternoon";
+  if (hour >= 17 && hour < 22) return "evening";
+  return "night";
+}
+
+function getLocalDayKey(options?: {
+  timezoneOffsetMinutes?: number;
+  now?: Date;
+}): string {
+  const now = options?.now ?? new Date();
+  const shifted =
+    typeof options?.timezoneOffsetMinutes === "number"
+      ? new Date(now.getTime() + options.timezoneOffsetMinutes * 60 * 1000)
+      : now;
+  return shifted.toISOString().slice(0, 10);
+}
+
+function hashString(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function chooseDailyOutfit(profile: GirlfriendProfile, timeOfDay: TimeOfDay, dayKey: string): string {
+  const personality = profile.personality.toLowerCase();
+  const basePool = personality.includes("bold")
+    ? [
+        "a fitted black crop top with high-waisted jeans",
+        "a sleek ribbed dress with simple jewelry",
+        "a structured blazer over a soft camisole",
+      ]
+    : personality.includes("shy")
+      ? [
+          "an oversized soft hoodie with lounge shorts",
+          "a cozy knit sweater with relaxed jeans",
+          "a loose tee with comfy pajama shorts",
+        ]
+      : personality.includes("bubbly")
+        ? [
+            "a bright fitted tee with a denim skirt",
+            "a pastel cardigan with a pleated skirt",
+            "a playful crop top with wide-leg jeans",
+          ]
+        : [
+            "a casual tank with high-waisted jeans",
+            "a soft cotton tee with relaxed shorts",
+            "a simple fitted top with lounge pants",
+          ];
+
+  const morningPool = [
+    "an oversized sleep shirt with bare legs",
+    "a soft pajama set with tousled hair",
+    ...basePool,
+  ];
+  const nightPool = [
+    "a cozy camisole with loose shorts",
+    "an oversized tee with rumpled sheets around her",
+    ...basePool,
+  ];
+
+  const pool = timeOfDay === "morning" ? morningPool : timeOfDay === "night" ? nightPool : basePool;
+  const key = `${profile.telegramId}:${profile.slotIndex ?? 0}:${dayKey}`;
+  return pool[hashString(key) % pool.length];
+}
+
+export function resolveEnvironmentContinuity(
+  profile: GirlfriendProfile,
+  options?: { timezoneOffsetMinutes?: number; now?: Date }
+): ResolvedEnvironmentContext {
+  const timeOfDay = getTimeOfDay(options);
+  const dayKey = getLocalDayKey(options);
+  const environment = profile.environment;
+  if (!environment) {
+    return {
+      environment: {
+        homeDescription: "small apartment with a plant corner and warm lived-in details",
+        bedroomDetails: "fairy lights, slightly messy sheets, soft bedside lamp glow",
+        favoriteLocations: ["local coffee shop", "nearby park", "balcony view"],
+        currentOutfit: chooseDailyOutfit(profile, timeOfDay, dayKey),
+        currentOutfitDay: dayKey,
+      },
+      timeOfDay,
+      dayKey,
+      didChange: true,
+    };
+  }
+
+  const needsOutfitRefresh =
+    !environment.currentOutfit ||
+    !environment.currentOutfitDay ||
+    (timeOfDay === "morning" && environment.currentOutfitDay !== dayKey);
+
+  if (!needsOutfitRefresh) {
+    return { environment, timeOfDay, dayKey, didChange: false };
+  }
+
+  return {
+    environment: {
+      ...environment,
+      currentOutfit: chooseDailyOutfit(profile, timeOfDay, dayKey),
+      currentOutfitDay: dayKey,
+    },
+    timeOfDay,
+    dayKey,
+    didChange: true,
+  };
+}
+
+export function getEnvironmentContext(
+  profile: GirlfriendProfile,
+  timeOfDay: TimeOfDay
+): string {
+  const environment = profile.environment;
+  if (!environment) return "";
+
+  const favoriteLocations = environment.favoriteLocations.length > 0
+    ? environment.favoriteLocations
+    : ["nearby cafe", "city park", "balcony"];
+
+  const dayAnchor = hashString(`${profile.telegramId}:${environment.currentOutfitDay ?? ""}`);
+  const favoriteLocation = favoriteLocations[dayAnchor % favoriteLocations.length];
+
+  const locationByTime: Record<TimeOfDay, string> = {
+    morning: `in her bedroom or kitchen at home (${environment.bedroomDetails})`,
+    afternoon: `in the living room or outside at ${favoriteLocation}`,
+    evening: `in a cozy living room corner at home (${environment.homeDescription})`,
+    night: `in the bedroom with familiar details (${environment.bedroomDetails})`,
+  };
+
+  const outfitLine = environment.currentOutfit
+    ? `She keeps the same outfit today: ${environment.currentOutfit}.`
+    : "";
+
+  return [
+    `Environment continuity for ${timeOfDay}: ${locationByTime[timeOfDay]}.`,
+    `Home baseline: ${environment.homeDescription}.`,
+    `Background anchors stay consistent across today's selfies: ${environment.bedroomDetails}.`,
+    outfitLine,
+  ].filter(Boolean).join(" ");
 }
 
 export function getSeasonalContext(now: Date = new Date()): string {

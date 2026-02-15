@@ -22,10 +22,13 @@ export async function setupBot(bot: Bot<BotContext>): Promise<void> {
       { command: "remake", description: "change my look ✨" },
       { command: "fantasy", description: "let's roleplay 🎭" },
       { command: "mood", description: "how i feel about u 💕" },
+      { command: "status", description: "our bond level 💖" },
+      { command: "game", description: "let's play a game 🎮" },
       { command: "gallery", description: "our photo album 📸" },
       { command: "challenge", description: "daily dare 🎯" },
       { command: "leaderboard", description: "who loves me most? 🏆" },
       { command: "switch", description: "meet someone else? 💔" },
+      { command: "setup_classic", description: "old setup buttons 🎛" },
       { command: "settings", description: "notifications & stuff ⚙️" },
       { command: "voice", description: "change how i sound 🎙" },
     ]);

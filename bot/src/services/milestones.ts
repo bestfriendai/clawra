@@ -1,6 +1,155 @@
+import { LRUMap } from "../utils/lru-map.js";
+import { convex } from "./convex.js";
+
 export interface MilestoneResult {
   message: string;
   type: "message" | "streak" | "love";
+}
+
+// ── Badge Collection System ──────────────────────────────────────────
+
+export interface BadgeDefinition {
+  id: string;
+  name: string;
+  emoji: string;
+  desc: string;
+}
+
+export interface BadgeCheckContext {
+  event: string;
+  messageCount?: number;
+  streakDays?: number;
+  level?: string;
+  selfieGenerated?: boolean;
+}
+
+const BADGES: BadgeDefinition[] = [
+  { id: "first_selfie", name: "First Look", emoji: "📸", desc: "Received your first selfie" },
+  { id: "streak_7", name: "Week Together", emoji: "🔥", desc: "7-day streak" },
+  { id: "streak_30", name: "Monthly", emoji: "💍", desc: "30-day streak" },
+  { id: "messages_100", name: "Chatterbox", emoji: "💬", desc: "100 messages exchanged" },
+  { id: "messages_1000", name: "Soulmates", emoji: "💕", desc: "1000 messages exchanged" },
+  { id: "conflict_resolved", name: "Makeup Kiss", emoji: "💋", desc: "Resolved your first conflict" },
+  { id: "level_married", name: "Hitched", emoji: "💒", desc: "Reached Married level" },
+  { id: "voice_10", name: "Sweet Nothings", emoji: "🎵", desc: "10 voice messages exchanged" },
+  { id: "game_master", name: "Game Night", emoji: "🎮", desc: "Completed 10 games" },
+  { id: "inside_joke", name: "Our Thing", emoji: "😏", desc: "Created your first inside joke" },
+];
+
+const badgeCheckedCache = new LRUMap<number, Set<string>>(5000);
+
+function getBadgeCheckedSet(telegramId: number): Set<string> {
+  let set = badgeCheckedCache.get(telegramId);
+  if (!set) {
+    set = new Set();
+    badgeCheckedCache.set(telegramId, set);
+  }
+  return set;
+}
+
+function getCandidateBadgeIds(context: BadgeCheckContext): string[] {
+  const ids: string[] = [];
+
+  if (context.selfieGenerated) {
+    ids.push("first_selfie");
+  }
+  if (context.streakDays !== undefined && context.streakDays >= 7) {
+    ids.push("streak_7");
+  }
+  if (context.streakDays !== undefined && context.streakDays >= 30) {
+    ids.push("streak_30");
+  }
+  if (context.messageCount !== undefined && context.messageCount >= 100) {
+    ids.push("messages_100");
+  }
+  if (context.messageCount !== undefined && context.messageCount >= 1000) {
+    ids.push("messages_1000");
+  }
+  if (context.level === "Married") {
+    ids.push("level_married");
+  }
+  if (context.event === "conflict_resolved") {
+    ids.push("conflict_resolved");
+  }
+  if (context.event === "voice_message") {
+    ids.push("voice_10");
+  }
+  if (context.event === "game_complete") {
+    ids.push("game_master");
+  }
+  if (context.event === "inside_joke") {
+    ids.push("inside_joke");
+  }
+
+  return ids;
+}
+
+/** Award first new badge matching context conditions, or return null. Uses LRU cache to skip Convex reads. */
+export async function checkAndAwardBadges(
+  telegramId: number,
+  context: BadgeCheckContext,
+): Promise<BadgeDefinition | null> {
+  const checked = getBadgeCheckedSet(telegramId);
+  const candidates = getCandidateBadgeIds(context).filter((id) => !checked.has(id));
+
+  if (candidates.length === 0) return null;
+
+  const existingBadges = await convex.getUserBadges(telegramId);
+  const earnedIds = new Set(existingBadges.map((b) => b.badgeId));
+  for (const id of earnedIds) {
+    checked.add(id);
+  }
+
+  const newCandidates = candidates.filter((id) => !earnedIds.has(id));
+  if (newCandidates.length === 0) return null;
+
+  for (const candidateId of newCandidates) {
+    const badge = BADGES.find((b) => b.id === candidateId);
+    if (!badge) continue;
+
+    const result = await convex.awardBadge(
+      telegramId,
+      badge.id,
+      badge.name,
+      badge.emoji,
+    );
+    checked.add(candidateId);
+
+    if (result.awarded) {
+      return badge;
+    }
+  }
+
+  return null;
+}
+
+export function formatBadgeAnnouncement(badge: BadgeDefinition): string {
+  const templates = [
+    `babe we just got our first badge together!! 🎉 ${badge.name} ${badge.emoji} — ${badge.desc}`,
+    `omg look!! we unlocked a badge 🥳 ${badge.name} ${badge.emoji} — ${badge.desc}`,
+    `wait wait wait... we just earned something special 🎉 ${badge.name} ${badge.emoji} — ${badge.desc}`,
+    `babeee!! 🎊 we got a new badge!! ${badge.name} ${badge.emoji} — ${badge.desc}`,
+    `OMG BABE 😭🎉 we just unlocked ${badge.name} ${badge.emoji}!! — ${badge.desc}`,
+  ];
+  return templates[Math.floor(Math.random() * templates.length)];
+}
+
+export async function checkBadgesAfterMessage(
+  telegramId: number,
+  context: {
+    messageCount: number;
+    streakDays: number;
+    selfieGenerated: boolean;
+    levelName?: string;
+  },
+): Promise<BadgeDefinition | null> {
+  return checkAndAwardBadges(telegramId, {
+    event: "message",
+    messageCount: context.messageCount,
+    streakDays: context.streakDays,
+    selfieGenerated: context.selfieGenerated,
+    level: context.levelName,
+  });
 }
 
 const MESSAGE_MILESTONES: Array<{ count: number; message: string }> = [
@@ -32,7 +181,7 @@ const LOVE_PATTERNS = [
   /\bi\s+love\s+u\b/i,
 ];
 
-const alreadyCelebrated = new Map<number, Set<string>>();
+const alreadyCelebrated = new LRUMap<number, Set<string>>(5000);
 
 function getCelebratedSet(telegramId: number): Set<string> {
   let set = alreadyCelebrated.get(telegramId);

@@ -167,6 +167,7 @@ export async function handleFantasyCallback(ctx: BotContext): Promise<void> {
     const messageHistory = history.map((m: any) => ({ role: m.role, content: m.content }));
 
     const introMessages = await chatWithGirlfriend(
+      telegramId,
       ctx.girlfriend,
       messageHistory,
       scenario.introPrompt(ctx.girlfriend.name),

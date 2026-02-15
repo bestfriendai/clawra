@@ -1,6 +1,7 @@
 import type { Bot } from "grammy";
 import { convex } from "./convex.js";
 import type { BotContext } from "../types/context.js";
+import { LRUMap } from "../utils/lru-map.js";
 
 export interface WelcomeStep {
   id: string;
@@ -47,11 +48,11 @@ export const WELCOME_STEPS: WelcomeStep[] = [
 
 type BotLike = Pick<Bot<BotContext>, "api">;
 
-const sentStepsByUser = new Map<number, Set<string>>();
-const timeoutsByUser = new Map<number, ReturnType<typeof setTimeout>[]>();
-const userCreatedAtById = new Map<number, number>();
-const sequenceStartedAtByUser = new Map<number, number>();
-const userRespondedAtById = new Map<number, number>();
+const sentStepsByUser = new LRUMap<number, Set<string>>(2000);
+const timeoutsByUser = new LRUMap<number, ReturnType<typeof setTimeout>[]>(2000);
+const userCreatedAtById = new LRUMap<number, number>(2000);
+const sequenceStartedAtByUser = new LRUMap<number, number>(2000);
+const userRespondedAtById = new LRUMap<number, number>(2000);
 const activeSequenceUsers = new Set<number>();
 
 let workerBot: BotLike | null = null;

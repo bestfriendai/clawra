@@ -1,4 +1,5 @@
 import { convex } from "./convex.js";
+import { LRUMap } from "../utils/lru-map.js";
 
 const DEFAULT_QUIET_START = 23;
 const DEFAULT_QUIET_END = 7;
@@ -39,7 +40,7 @@ interface ProactiveEvent {
   respondedAt?: number;
 }
 
-const proactiveHistory = new Map<number, ProactiveEvent[]>();
+const proactiveHistory = new LRUMap<number, ProactiveEvent[]>(5000);
 
 function isChatMessage(value: unknown): value is ChatMessage {
   if (typeof value !== "object" || value === null) return false;
@@ -205,7 +206,7 @@ export async function getBestSendTime(
   const offset = parseTimezoneOffset(preferences.timezone);
   const messages = await getRecentChatMessages(telegramId, 120);
 
-  const userLocalHourCounts = new Map<number, number>();
+  const userLocalHourCounts = new LRUMap<number, number>(5000);
   for (const message of messages) {
     if (message.role !== "user") continue;
     const localHour = getLocalHourFromOffset(offset, message.createdAt);

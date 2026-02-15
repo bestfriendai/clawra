@@ -5,6 +5,7 @@ import { CREDIT_COSTS } from "../../config/pricing.js";
 import { env } from "../../config/env.js";
 import { sanitizeForAI } from "../../utils/sanitize.js";
 import { getModerationResponse, isProhibitedContent } from "../../utils/moderation.js";
+import { LRUMap } from "../../utils/lru-map.js";
 
 const GROUP_RESPONSE_LIMIT = 5;
 const GROUP_RESPONSE_WINDOW_MS = 60 * 60 * 1000;
@@ -13,7 +14,7 @@ const GROUP_KEYWORDS = ["clawra", "ai girlfriend", "girlfriend bot", "virtual gi
 const GROUP_NSFW_PATTERN =
   /\b(nsfw|sex|sexy|horny|nude|naked|explicit|fuck|fucking|cum|blowjob|bj|anal|fetish|roleplay|turn me on|moan)\b/i;
 
-const groupResponseTracker = new Map<number, number[]>();
+const groupResponseTracker = new LRUMap<number, number[]>(1000);
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

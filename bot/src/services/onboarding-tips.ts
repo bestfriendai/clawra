@@ -1,3 +1,5 @@
+import { LRUMap } from "../utils/lru-map.js";
+
 const TIP_BY_MESSAGE_COUNT: Record<number, string> = {
   3: "💡 tip: you can ask me to send you pics anytime! just say 'send a pic' or 'take a selfie'",
   7: "💡 tip: try /fantasy for roleplay mode... it gets spicy 😏",
@@ -5,7 +7,7 @@ const TIP_BY_MESSAGE_COUNT: Record<number, string> = {
   20: "💡 tip: use /mood to see how our relationship is growing 💕",
 };
 
-const shownTipsByUser = new Map<number, Set<number>>();
+const shownTipsByUser = new LRUMap<number, Set<number>>(2000);
 
 export function getFirstTimeTip(
   messageCount: number,

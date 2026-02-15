@@ -50,3 +50,59 @@ export const FREE_TIER = {
   nsfwImages: 0,
   videos: 0,
 } as const;
+
+// --- Pricing Tiers (v2) ---
+
+export interface PricingTier {
+  price: number;
+  monthlyCredits: number;
+  dailyMessages?: number;
+  dailySelfies: number;
+  dailyVoiceNotes: number;
+  features: string[];
+}
+
+export const TIERS: Record<string, PricingTier> = {
+  free: {
+    price: 0,
+    monthlyCredits: 300,
+    dailyMessages: 30,
+    dailySelfies: 1,
+    dailyVoiceNotes: 0,
+    features: ["basic_chat", "daily_selfie"],
+  },
+  basic: {
+    price: 9.99,
+    monthlyCredits: 2000,
+    dailySelfies: 10,
+    dailyVoiceNotes: 5,
+    features: ["basic_chat", "selfies", "voice", "ad_free", "priority_response"],
+  },
+  pro: {
+    price: 19.99,
+    monthlyCredits: 5000,
+    dailySelfies: -1, // unlimited
+    dailyVoiceNotes: 20,
+    features: ["all_basic", "hd_photos", "video_short", "ambient_photos", "inside_jokes", "daily_stories"],
+  },
+  premium: {
+    price: 39.99,
+    monthlyCredits: -1, // unlimited
+    dailySelfies: -1,
+    dailyVoiceNotes: -1,
+    features: ["all_pro", "video_long", "voice_clone", "priority_queue", "exclusive_content"],
+  },
+};
+
+export function hasFeatureAccess(tierName: string, feature: string): boolean {
+  const tier = TIERS[tierName];
+  if (!tier) return false;
+  if (tier.features.includes(feature)) return true;
+  if (tier.features.includes("all_pro")) return hasFeatureAccess("pro", feature);
+  if (tier.features.includes("all_basic")) return hasFeatureAccess("basic", feature);
+  return false;
+}
+
+export function getTierForUser(subscriptionTier?: string): PricingTier {
+  return TIERS[subscriptionTier || "free"] || TIERS.free;
+}

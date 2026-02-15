@@ -1,6 +1,9 @@
 import OpenAI from "openai";
 import { env } from "../config/env.js";
-import { buildSystemPrompt, buildMissYouPrompt } from "./girlfriend-prompt.js";
+import {
+  buildMissYouPrompt,
+  buildSystemPromptWithInsideJokes,
+} from "./girlfriend-prompt.js";
 import type { GirlfriendProfile } from "../types/context.js";
 import { getMissYouTier } from "./retention.js";
 import type { RelationshipStage } from "./retention.js";
@@ -14,6 +17,7 @@ import {
 import {
   detectUserEmotion,
   getEmotionalResponse,
+  hydrateEmotionalMemory,
   shouldInitiateEmotionalCheck,
 } from "./emotional-state.js";
 import {
@@ -28,6 +32,7 @@ import {
   type PsychologySignals,
 } from "./psychology-guardrails.js";
 import { buildResponsePlan, buildResponsePlanPrompt } from "./response-planner.js";
+import { detectInsideJokes } from "./inside-jokes.js";
 
 const venice = new OpenAI({
   apiKey: env.VENICE_API_KEY,
@@ -101,19 +106,35 @@ function normalizeSingleReply(rawReply: string): string {
  * Passes the full system prompt with personality + extracted memories.
  */
 export async function chatWithGirlfriend(
+  telegramId: number,
   profile: GirlfriendProfile,
   messageHistory: ChatMessage[],
   userMessage: string,
   memoryFacts: Array<string | { fact: string; category?: string }> = [],
   retention?: { stage: string; streak: number },
   psychologySignals?: PsychologySignals,
-  conversationThreadId?: string
+  conversationThreadId?: string,
+  recalledMemories: Array<string | { fact: string; category?: string }> = []
 ): Promise<string[]> {
+  await hydrateEmotionalMemory(telegramId);
+
+  const insideJokeScanMessages = [
+    ...messageHistory,
+    { role: "user", content: userMessage },
+  ].slice(-30);
+  void detectInsideJokes(telegramId, insideJokeScanMessages).catch((error) => {
+    console.error("Background inside joke detection failed:", error);
+  });
+
   const signals = psychologySignals ?? analyzePsychologicalSignals(userMessage);
-  const userEmotion = detectUserEmotion(userMessage);
-  const emotionalGuidance = getEmotionalResponse(userEmotion.emotion, profile.personality);
+  const userEmotion = detectUserEmotion(telegramId, userMessage);
+  const emotionalGuidance = getEmotionalResponse(
+    telegramId,
+    userEmotion.emotion,
+    profile.personality
+  );
   const relationshipStage = retention?.stage || "new";
-  const hasStrongMemory = memoryFacts.some((fact) => {
+  const hasStrongMemory = [...memoryFacts, ...recalledMemories].some((fact) => {
     if (typeof fact === "string") {
       return fact.trim().length > 0;
     }
@@ -157,7 +178,13 @@ export async function chatWithGirlfriend(
         ? "- Safety mode is supportive: prioritize emotional stability, consent, and non-manipulative closeness."
         : "- Safety mode is playful: keep chemistry and personality high while staying respectful.";
 
-  const baseSystemPrompt = buildSystemPrompt(profile, [], retention);
+  const baseSystemPrompt = await buildSystemPromptWithInsideJokes(
+    telegramId,
+    profile,
+    [],
+    retention,
+    recalledMemories
+  );
   const optionalMemoryPrompt = tieredMemoryBlock ? `\n\n${tieredMemoryBlock}` : "";
 
   const threadIsolation = conversationThreadId
@@ -282,20 +309,23 @@ export async function chatInGroup(
  */
 export async function extractMemory(
   girlfriendName: string,
-  recentMessages: ChatMessage[]
+  recentMessages: ChatMessage[],
+  telegramId?: number
 ): Promise<string[]> {
   const categorized = await extractEnhancedMemoryCore(
     girlfriendName,
-    recentMessages as MemoryMessage[]
+    recentMessages as MemoryMessage[],
+    telegramId
   );
   return categorized.map((item) => item.fact);
 }
 
 export async function extractEnhancedMemory(
   girlfriendName: string,
-  recentMessages: MemoryMessage[]
+  recentMessages: MemoryMessage[],
+  telegramId?: number
 ): Promise<EnhancedMemoryFact[]> {
-  return extractEnhancedMemoryCore(girlfriendName, recentMessages);
+  return extractEnhancedMemoryCore(girlfriendName, recentMessages, telegramId);
 }
 
 /**

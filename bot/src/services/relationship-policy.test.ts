@@ -32,6 +32,16 @@ test("system prompt includes emotional safety and consent framing", () => {
   assert.match(prompt, /consent/i);
 });
 
+test("system prompt includes recent emotional trajectory context", () => {
+  const prompt = buildSystemPrompt(
+    profile,
+    [{ fact: "declining trend from worried to sad", category: "emotional" }],
+    { stage: "comfortable", streak: 8 }
+  );
+
+  assert.match(prompt, /emotional trajectory/i);
+});
+
 test("time-of-day guidance avoids addiction framing", () => {
   const guidance = getTimeOfDayGuidance();
   assert.doesNotMatch(guidance, /addiction/i);

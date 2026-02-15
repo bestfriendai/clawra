@@ -17,6 +17,8 @@ import {
 } from "../../config/pose-library.js";
 import { getRandomOutfit, type Outfit } from "../../config/outfit-library.js";
 import { setSessionValue } from "../../services/session-store.js";
+import { LRUMap } from "../../utils/lru-map.js";
+import { resolveEnvironmentContinuity } from "../../services/image-intelligence.js";
 
 const SELFIE_FAIL_EXCUSES = [
   "ugh my camera glitched, gimme one sec",
@@ -35,7 +37,7 @@ type SelfieSessionState = {
   lastOutfitId?: string;
 };
 
-const selfieSessionState = new Map<number, SelfieSessionState>();
+const selfieSessionState = new LRUMap<number, SelfieSessionState>(2000);
 
 function getSessionState(telegramId: number): SelfieSessionState {
   return selfieSessionState.get(telegramId) || {};
@@ -185,11 +187,30 @@ async function generateAndSendSelfie(
       }
     }
 
-    const prompt = nsfw
-      ? buildSelfieNSFW(ctx.girlfriend, enrichedContext)
-      : buildSelfieSFW(ctx.girlfriend, enrichedContext);
+    const environmentResolution = resolveEnvironmentContinuity(ctx.girlfriend);
+    const profileForPrompt = environmentResolution.didChange
+      ? {
+          ...ctx.girlfriend,
+          environment: environmentResolution.environment,
+        }
+      : ctx.girlfriend;
 
-    const refUrl = ctx.girlfriend.referenceImageUrl;
+    if (environmentResolution.didChange) {
+      ctx.girlfriend = profileForPrompt;
+      await convex.updateProfile({
+        telegramId,
+        environment: environmentResolution.environment,
+      });
+    }
+
+    const prompt = nsfw
+      ? buildSelfieNSFW(profileForPrompt, enrichedContext)
+      : buildSelfieSFW(profileForPrompt, enrichedContext);
+
+    const refUrl = profileForPrompt.referenceImageUrl;
+    if (!refUrl) {
+      throw new Error("Missing reference image URL");
+    }
     const result = await editImage(refUrl, prompt, nsfw);
 
     await ctx.replyWithPhoto(result.url, {
@@ -274,6 +295,7 @@ export async function handleReactionCallback(ctx: BotContext) {
     const retentionState = await convex.getRetentionState(telegramId);
 
     const replies = await chatWithGirlfriend(
+      telegramId,
       ctx.girlfriend,
       recentMessages as Array<{ role: string; content: string }>,
       promptContext,
@@ -319,6 +341,7 @@ export async function handleVoiceReactCallback(ctx: BotContext) {
     const retentionState = await convex.getRetentionState(telegramId);
 
     const replies = await chatWithGirlfriend(
+      telegramId,
       ctx.girlfriend,
       recentMessages as Array<{ role: string; content: string }>,
       "He wants to hear your voice. Send a short, sweet voice note reacting to the photo you just sent.",
@@ -341,7 +364,12 @@ export async function handleVoiceReactCallback(ctx: BotContext) {
       });
     }
 
-    const result = await generateVoiceNote(voiceText, ctx.girlfriend.voiceId, voiceProfile);
+    const result = await generateVoiceNote(
+      telegramId,
+      voiceText,
+      ctx.girlfriend.voiceId,
+      voiceProfile
+    );
 
     await convex.addMessage({ telegramId, role: "assistant", content: `*sends a voice note* ${voiceText}` });
     await convex.logUsage({

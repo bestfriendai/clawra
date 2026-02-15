@@ -758,7 +758,72 @@ export function addSpeechNaturalness(text: string): string {
     .replace(/\bidk\b/gi, "I don't know");
 }
 
+type ContextualVoiceMood = "tired" | "energetic" | "sad" | "neutral";
+
+interface ContextualVoiceTuning {
+  speedMultiplier: number;
+  volume: number;
+  pitchDelta: number;
+  emotion?: MiniMaxEmotion;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function inferContextualVoiceMood(text: string, now: Date = new Date()): ContextualVoiceMood {
+  const lower = text.toLowerCase();
+  const hour = now.getHours();
+
+  if (/\b(sad|upset|hurt|depressed|heartbroken|cry|crying|bad day|anxious|stressed)\b/.test(lower)) {
+    return "sad";
+  }
+
+  if (hour >= 22 || hour <= 5) {
+    return "tired";
+  }
+
+  if (hour >= 6 && hour <= 11) {
+    return "energetic";
+  }
+
+  return "neutral";
+}
+
+function getContextualVoiceTuning(mood: ContextualVoiceMood): ContextualVoiceTuning {
+  switch (mood) {
+    case "tired":
+      return {
+        speedMultiplier: 0.88,
+        volume: 0.86,
+        pitchDelta: -1,
+        emotion: "neutral",
+      };
+    case "energetic":
+      return {
+        speedMultiplier: 1.08,
+        volume: 1.08,
+        pitchDelta: 1,
+        emotion: "happy",
+      };
+    case "sad":
+      return {
+        speedMultiplier: 0.82,
+        volume: 0.8,
+        pitchDelta: -2,
+        emotion: "sad",
+      };
+    default:
+      return {
+        speedMultiplier: 1,
+        volume: 1,
+        pitchDelta: 0,
+      };
+  }
+}
+
 export async function generateVoiceNote(
+  telegramId: number,
   text: string,
   voiceId?: string,
   profile?: VoiceProfile,
@@ -769,9 +834,12 @@ export async function generateVoiceNote(
   const fallbackProfile = getDefaultVoiceProfile();
   const resolvedProfile = profile ?? (!voiceId ? fallbackProfile : undefined);
 
-  const detectedEmotion = detectUserEmotion(text).emotion;
+  const detectedEmotion = detectUserEmotion(telegramId, text).emotion;
   const emotionOverride = getVoiceProfileForEmotion(detectedEmotion);
   const manualEmotion = emotion?.trim().toLowerCase();
+  const contextualMood = inferContextualVoiceMood(text);
+  const contextualTuning = getContextualVoiceTuning(contextualMood);
+  const shouldPreferMiniMax = contextualMood !== "neutral";
 
   const contextualSpeed =
     manualEmotion === "whisper"
@@ -783,31 +851,37 @@ export async function generateVoiceNote(
           : undefined;
 
   const resolvedVoiceId = resolvedProfile?.voiceId ?? voiceId ?? fallbackProfile.voiceId;
-  const resolvedSpeed = contextualSpeed ?? emotionOverride.speed ?? resolvedProfile?.speed ?? 0.9;
-  const resolvedPitch = emotionOverride.pitch ?? resolvedProfile?.pitch ?? -2;
+  const baseSpeed = contextualSpeed ?? emotionOverride.speed ?? resolvedProfile?.speed ?? 0.9;
+  const basePitch = emotionOverride.pitch ?? resolvedProfile?.pitch ?? -2;
+  const resolvedSpeed = clampNumber(baseSpeed * contextualTuning.speedMultiplier, 0.65, 1.25);
+  const resolvedPitch = clampNumber(basePitch + contextualTuning.pitchDelta, -12, 12);
+  const resolvedVolume = clampNumber(contextualTuning.volume, 0.65, 1.2);
+  const moodEmotionOverride = emotionOverride.emotion !== "neutral" ? emotionOverride.emotion : contextualTuning.emotion;
   const resolvedEmotion =
-    emotionOverride.emotion ??
+    moodEmotionOverride ??
     (resolvedProfile?.emotion as MiniMaxEmotion | undefined) ??
     "neutral";
 
   // Try Dia TTS first for natural conversational voice, fall back to MiniMax HD
-  try {
-    const diaResult = await withRetry(
-      () =>
-        fal.subscribe(MODEL_IDS["dia-tts"], {
-          input: {
-            text: `[S1] ${safePrompt}`,
-          },
-        }),
-      "generate voice note (dia-tts)"
-    );
-    const diaData = diaResult.data as { audio?: { url?: string }; url?: string; duration_ms?: number };
-    const diaUrl = diaData.audio?.url ?? diaData.url;
-    if (diaUrl) {
-      return { url: diaUrl, duration_ms: diaData.duration_ms || 0 };
+  if (!shouldPreferMiniMax) {
+    try {
+      const diaResult = await withRetry(
+        () =>
+          fal.subscribe(MODEL_IDS["dia-tts"], {
+            input: {
+              text: `[S1] ${safePrompt}`,
+            },
+          }),
+        "generate voice note (dia-tts)"
+      );
+      const diaData = diaResult.data as { audio?: { url?: string }; url?: string; duration_ms?: number };
+      const diaUrl = diaData.audio?.url ?? diaData.url;
+      if (diaUrl) {
+        return { url: diaUrl, duration_ms: diaData.duration_ms || 0 };
+      }
+    } catch {
+      // Dia failed, fall through to MiniMax HD
     }
-  } catch {
-    // Dia failed, fall through to MiniMax HD
   }
 
   const result = await withRetry(
@@ -818,7 +892,7 @@ export async function generateVoiceNote(
           voice_setting: {
             voice_id: resolvedVoiceId,
             speed: resolvedSpeed,
-            vol: 1.0,
+            vol: resolvedVolume,
             pitch: resolvedPitch,
             emotion: resolvedEmotion,
             english_normalization: true,

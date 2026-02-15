@@ -38,6 +38,13 @@ export interface GirlfriendProfile {
   hairStyle: string;
   eyeColor?: string;
   personality: string;
+  environment?: {
+    homeDescription: string;
+    bedroomDetails: string;
+    favoriteLocations: string[];
+    currentOutfit?: string;
+    currentOutfitDay?: string;
+  };
   backstory?: string;
   referenceImageUrl?: string;
   isConfirmed: boolean;

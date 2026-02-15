@@ -15,7 +15,7 @@ import { authMiddleware } from "./middleware/auth.js";
 import { rateLimitMiddleware } from "./middleware/ratelimit.js";
 
 // Conversations
-import { girlfriendSetup } from "./conversations/girlfriend-setup.js";
+import { girlfriendSetup, girlfriendSetupClassic } from "./conversations/girlfriend-setup.js";
 
 // Handlers
 import { handleStart } from "./handlers/start.js";
@@ -33,6 +33,7 @@ import { handleVoiceMessage } from "./handlers/voice.js";
 import { handlePhoto, handleSticker, handleGif } from "./handlers/media.js";
 import { handleFantasy, handleFantasyCallback } from "./handlers/fantasy.js";
 import { handleMood } from "./handlers/mood.js";
+import { handleStatus } from "./handlers/status.js";
 import { handleGallery } from "./handlers/gallery.js";
 import {
   handleAlbum,
@@ -48,6 +49,8 @@ import { handleSwitch, handleSwitchCallback } from "./handlers/switch.js";
 import { handleSettings, handleSettingsCallback } from "./handlers/settings.js";
 import { handleVoiceSettings, handleVoiceSettingsCallback } from "./handlers/voice-settings.js";
 import { handleGroupMessage } from "./handlers/group-chat.js";
+import { handleSetupClassic } from "./handlers/setup-classic.js";
+import { handleGame, handleGameCallback, handleGameMessage } from "./handlers/games.js";
 
 export function createBot(options?: CreateBotOptions): Bot<BotContext> {
   const bot = new Bot<BotContext>(env.TELEGRAM_BOT_TOKEN, options?.botInfo ? { botInfo: options.botInfo } : undefined);
@@ -72,6 +75,7 @@ export function createBot(options?: CreateBotOptions): Bot<BotContext> {
   // Conversations plugin
   bot.use(conversations());
   bot.use(createConversation(girlfriendSetup));
+  bot.use(createConversation(girlfriendSetupClassic, "girlfriendSetupClassic"));
 
   // Middleware
   bot.use(rateLimitMiddleware);
@@ -91,6 +95,7 @@ export function createBot(options?: CreateBotOptions): Bot<BotContext> {
   bot.command("admin", handleAdmin);
   bot.command("fantasy", handleFantasy);
   bot.command("mood", handleMood);
+  bot.command("status", handleStatus);
   bot.command("gallery", handleGallery);
   bot.command("album", handleAlbum);
   bot.command("challenge", handleChallenge);
@@ -100,6 +105,8 @@ export function createBot(options?: CreateBotOptions): Bot<BotContext> {
   bot.command("switch", handleSwitch);
   bot.command("settings", handleSettings);
   bot.command("voice", handleVoiceSettings);
+  bot.command("setup_classic", handleSetupClassic);
+  bot.command("game", handleGame);
 
   // Payment handlers
   bot.on("pre_checkout_query", handlePreCheckout);
@@ -117,6 +124,7 @@ export function createBot(options?: CreateBotOptions): Bot<BotContext> {
     if (data.startsWith("referral:")) return handleReferralCallback(ctx);
     if (data.startsWith("settings:")) return handleSettingsCallback(ctx);
     if (data.startsWith("voice:")) return handleVoiceSettingsCallback(ctx);
+    if (data.startsWith("game:")) return handleGameCallback(ctx);
     if (data === "react_amazing" || data === "emotion_more" || data === "emotion_check" || data === "emotion_support") return handleReactionCallback(ctx);
     if (data === "voice_react") return handleVoiceReactCallback(ctx);
     await next();
@@ -143,6 +151,10 @@ export function createBot(options?: CreateBotOptions): Bot<BotContext> {
       return;
     }
     await next();
+  });
+  bot.on("message:text", async (ctx, next) => {
+    const handled = await handleGameMessage(ctx);
+    if (!handled) await next();
   });
   bot.on("message:text", handleChat);
 

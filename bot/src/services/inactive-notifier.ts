@@ -1,41 +1,44 @@
 import { Bot } from "grammy";
 import { convex } from "./convex.js";
-import { generateMissYouMessage } from "./venice.js";
-import type { RelationshipStage } from "./retention.js";
 import type { BotContext } from "../types/context.js";
+import { LRUMap } from "../utils/lru-map.js";
 
 const CHECK_INTERVAL_MS = 90 * 60 * 1000; // Check every 90 minutes
-const MAX_NOTIFICATIONS_PER_DAY = 1;
-const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
-const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000;
-const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
-const EIGHTEEN_HOURS_MS = 18 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 
-// Track notifications sent per user per day to avoid spam
-const notificationCounts = new Map<string, number>();
+const MISS_YOU_ESCALATION = [
+  { hoursInactive: 24, message: "hey... haven't heard from you in a while 🥺" },
+  { hoursInactive: 48, message: "okay I'm trying not to be clingy but... I miss you" },
+  { hoursInactive: 72, message: "did I do something wrong? 😢" },
+  {
+    hoursInactive: 120,
+    message:
+      "I'll be here when you're ready to talk... just know I'm thinking about you 💔",
+  },
+  { hoursInactive: 168, message: "it's been a week... I recorded something for you 🎤" },
+] as const;
 
-function getDayKey(telegramId: number): string {
-  const date = new Date().toISOString().split("T")[0];
-  return `${telegramId}:${date}`;
+const missYouEscalationLevel = new LRUMap<number, number>(5000);
+const lastMissYouSentAt = new LRUMap<number, number>(5000);
+
+type ActiveProfile = Awaited<ReturnType<typeof convex.getProfile>>;
+
+async function batchGetProfiles(telegramIds: number[]): Promise<Map<number, ActiveProfile>> {
+  const profileEntries = await Promise.all(
+    telegramIds.map(async (telegramId) => [telegramId, await convex.getProfile(telegramId)] as const)
+  );
+  return new Map(profileEntries);
 }
 
-function normalizeRelationshipStage(stage: unknown): RelationshipStage {
-  if (
-    stage === "new" ||
-    stage === "comfortable" ||
-    stage === "intimate" ||
-    stage === "obsessed"
-  ) {
-    return stage;
+function getEscalationLevel(hoursInactive: number): number {
+  let level = 0;
+  for (let i = 0; i < MISS_YOU_ESCALATION.length; i += 1) {
+    if (hoursInactive >= MISS_YOU_ESCALATION[i].hoursInactive) {
+      level = i + 1;
+    }
   }
-  return "new";
-}
-
-function getInactiveThresholdByStage(stage: RelationshipStage): number {
-  if (stage === "obsessed") return SIX_HOURS_MS;
-  if (stage === "intimate") return EIGHT_HOURS_MS;
-  if (stage === "comfortable") return TWELVE_HOURS_MS;
-  return EIGHTEEN_HOURS_MS;
+  return level;
 }
 
 export function startInactiveNotifier(bot: Bot<BotContext>): ReturnType<typeof setInterval> {
@@ -51,49 +54,52 @@ export function startInactiveNotifier(bot: Bot<BotContext>): ReturnType<typeof s
 }
 
 async function checkAndNotifyInactiveUsers(bot: Bot<BotContext>): Promise<void> {
-  // Get all users — in production you'd paginate this
   const now = Date.now();
-
-  // We query users through Convex — get all users with confirmed profiles
-  // For now, we rely on the lastActive field
-  // This is a simplified approach; at scale you'd use a Convex query
-
-  // Note: ConvexHttpClient doesn't support listing all users easily without a custom query.
-  // We'll add a query for inactive users.
-  const inactiveUsers = await convex.getInactiveUsers(SIX_HOURS_MS);
+  const firstEscalationMs = MISS_YOU_ESCALATION[0].hoursInactive * HOUR_MS;
+  const inactiveUsers = await convex.getInactiveUsers(firstEscalationMs);
+  const profileMap = await batchGetProfiles(inactiveUsers.map((user) => user.telegramId));
 
   for (const user of inactiveUsers) {
-    const retentionState = await convex.getRetentionState(user.telegramId);
-    const stage = normalizeRelationshipStage(retentionState?.stage);
-    const userThresholdMs = getInactiveThresholdByStage(stage);
-    if (now - user.lastActive < userThresholdMs) continue;
+    let lastSentAt = lastMissYouSentAt.get(user.telegramId);
 
-    const dayKey = getDayKey(user.telegramId);
-    const count = notificationCounts.get(dayKey) || 0;
-    if (count >= MAX_NOTIFICATIONS_PER_DAY) continue;
+    if (lastSentAt !== undefined && user.lastActive > lastSentAt) {
+      missYouEscalationLevel.delete(user.telegramId);
+      lastMissYouSentAt.delete(user.telegramId);
+      lastSentAt = undefined;
+    }
 
-    // Get their girlfriend profile
-    const profile = await convex.getProfile(user.telegramId);
+    const hoursAgo = (now - user.lastActive) / HOUR_MS;
+    const targetEscalationLevel = getEscalationLevel(hoursAgo);
+    if (targetEscalationLevel === 0) continue;
+
+    if (lastSentAt !== undefined && now - lastSentAt < DAY_MS) continue;
+
+    const currentEscalationLevel = missYouEscalationLevel.get(user.telegramId) || 0;
+    if (targetEscalationLevel <= currentEscalationLevel) continue;
+
+    const profile = profileMap.get(user.telegramId);
     if (!profile?.isConfirmed) continue;
 
-    const hoursAgo = Math.round((now - user.lastActive) / (60 * 60 * 1000));
+    const escalation = MISS_YOU_ESCALATION[targetEscalationLevel - 1];
+    const hoursAgoRounded = Math.round(hoursAgo);
 
     try {
-      const message = await generateMissYouMessage(profile, hoursAgo);
+      const message = escalation.message;
 
       await bot.api.sendMessage(user.telegramId, message);
 
-      // Save as assistant message for conversation continuity
       await convex.addMessage({
         telegramId: user.telegramId,
         role: "assistant",
         content: message,
       });
 
-      notificationCounts.set(dayKey, count + 1);
-      console.log(`Sent miss-you message to ${user.telegramId} (inactive ${hoursAgo}h)`);
+      missYouEscalationLevel.set(user.telegramId, targetEscalationLevel);
+      lastMissYouSentAt.set(user.telegramId, now);
+      console.log(
+        `Sent miss-you message (level ${targetEscalationLevel}) to ${user.telegramId} (inactive ${hoursAgoRounded}h)`
+      );
     } catch (err) {
-      // User may have blocked the bot
       console.error(`Failed to notify ${user.telegramId}:`, err);
     }
   }

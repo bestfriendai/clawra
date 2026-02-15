@@ -95,8 +95,13 @@ export async function handleVoiceSettings(ctx: BotContext): Promise<void> {
 }
 
 async function sendVoicePreview(ctx: BotContext, profile: VoiceProfile): Promise<void> {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) {
+    throw new Error("Missing telegram id for voice preview");
+  }
+
   await ctx.replyWithChatAction("record_voice");
-  const audio = await generateVoiceNote(PREVIEW_TEXT, undefined, profile);
+  const audio = await generateVoiceNote(telegramId, PREVIEW_TEXT, undefined, profile);
   const response = await fetch(audio.url);
   const buffer = Buffer.from(await response.arrayBuffer());
   const { InputFile } = await import("grammy");

@@ -4,6 +4,7 @@
  */
 
 import { convex } from "./convex.js";
+import { LRUMap } from "../utils/lru-map.js";
 
 interface CacheEntry {
   value: string;
@@ -11,7 +12,7 @@ interface CacheEntry {
 }
 
 const CACHE_TTL_MS = 30_000; // 30 seconds
-const cache = new Map<string, CacheEntry>();
+const cache = new LRUMap<string, CacheEntry>(5000);
 
 function cacheKey(telegramId: number, key: string): string {
   return `${telegramId}:${key}`;

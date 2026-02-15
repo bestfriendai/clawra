@@ -1,5 +1,7 @@
 import OpenAI from "openai";
 import { env } from "../config/env.js";
+import { detectInsideJokes } from "./inside-jokes.js";
+import { convex } from "./convex.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,6 +40,155 @@ export interface EnhancedMemoryFact {
 export interface MemoryMessage {
   role: string;
   content: string;
+}
+
+export interface MemoryFact {
+  fact: string;
+  category?: string;
+  confidence?: number;
+  extractedAt?: number;
+  createdAt?: number;
+  relevanceScore?: number;
+}
+
+const RECALL_PATTERNS = /remember|last time|you said|you told me|we talked about|that time|you mentioned/i;
+
+const RECALL_STOPWORDS = new Set([
+  "remember",
+  "last",
+  "time",
+  "you",
+  "said",
+  "told",
+  "talked",
+  "about",
+  "that",
+  "mentioned",
+  "when",
+  "like",
+  "we",
+  "our",
+  "the",
+  "and",
+  "for",
+  "with",
+  "this",
+  "from",
+  "have",
+  "had",
+  "was",
+  "were",
+]);
+
+function getFactTimestamp(fact: MemoryFact): number {
+  if (typeof fact.extractedAt === "number") return fact.extractedAt;
+  if (typeof fact.createdAt === "number") return fact.createdAt;
+  return 0;
+}
+
+function extractRecallKeywords(message: string): string[] {
+  const words = message
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length >= 3 && !RECALL_STOPWORDS.has(word));
+
+  return Array.from(new Set(words));
+}
+
+function scoreMemoryRelevance(factText: string, keywords: string[]): number {
+  if (keywords.length === 0) return 0;
+
+  const normalizedFact = factText.toLowerCase();
+  const factTokens = new Set(
+    normalizedFact
+      .split(/[^a-z0-9]+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 3)
+  );
+
+  let score = 0;
+  for (const keyword of keywords) {
+    if (normalizedFact.includes(keyword)) {
+      score += 2;
+    }
+    if (factTokens.has(keyword)) {
+      score += 1;
+    }
+  }
+
+  return score;
+}
+
+export async function findRelevantMemories(
+  telegramId: number,
+  message: string,
+  limit: number = 5
+): Promise<MemoryFact[]> {
+  if (!RECALL_PATTERNS.test(message)) return [];
+
+  let rawFacts: unknown[] = [];
+  try {
+    rawFacts = await convex.getMemoryFacts(telegramId);
+  } catch (error) {
+    console.error("Failed to fetch memory facts for recall:", error);
+    return [];
+  }
+
+  const facts = rawFacts
+    .map((item): MemoryFact | null => {
+      if (!item || typeof item !== "object") return null;
+
+      const candidate = item as Record<string, unknown>;
+      const factText = typeof candidate.fact === "string" ? candidate.fact.trim() : "";
+      if (!factText) return null;
+
+      return {
+        fact: factText,
+        category: typeof candidate.category === "string" ? candidate.category : undefined,
+        confidence: typeof candidate.confidence === "number"
+          ? Math.max(0, Math.min(1, candidate.confidence))
+          : undefined,
+        extractedAt: typeof candidate.extractedAt === "number" ? candidate.extractedAt : undefined,
+        createdAt: typeof candidate.createdAt === "number" ? candidate.createdAt : undefined,
+      };
+    })
+    .filter((fact): fact is MemoryFact => fact !== null);
+
+  if (facts.length === 0) return [];
+
+  const keywords = extractRecallKeywords(message);
+  const normalizedLimit = Math.max(1, limit);
+
+  if (keywords.length === 0) {
+    return facts
+      .sort((a, b) => getFactTimestamp(b) - getFactTimestamp(a))
+      .slice(0, normalizedLimit);
+  }
+
+  const ranked = facts
+    .map((fact) => ({
+      ...fact,
+      relevanceScore: scoreMemoryRelevance(fact.fact, keywords),
+    }))
+    .filter((fact) => (fact.relevanceScore ?? 0) > 0)
+    .sort((a, b) => {
+      const scoreDiff = (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0);
+      if (scoreDiff !== 0) return scoreDiff;
+
+      const confidenceDiff = (b.confidence ?? 0) - (a.confidence ?? 0);
+      if (confidenceDiff !== 0) return confidenceDiff;
+
+      return getFactTimestamp(b) - getFactTimestamp(a);
+    });
+
+  if (ranked.length > 0) {
+    return ranked.slice(0, normalizedLimit);
+  }
+
+  return facts
+    .sort((a, b) => getFactTimestamp(b) - getFactTimestamp(a))
+    .slice(0, normalizedLimit);
 }
 
 // ---------------------------------------------------------------------------
@@ -459,7 +610,8 @@ ${conversation}`;
 
 export async function extractEnhancedMemory(
   girlfriendName: string,
-  recentMessages: MemoryMessage[]
+  recentMessages: MemoryMessage[],
+  telegramId?: number
 ): Promise<EnhancedMemoryFact[]> {
   if (recentMessages.length < 4) return [];
 
@@ -550,6 +702,14 @@ export async function extractEnhancedMemory(
         extractedAt: now,
         ...(supersedes ? { supersedes } : {}),
       });
+    }
+
+    if (typeof telegramId === "number" && telegramId > 0) {
+      try {
+        await detectInsideJokes(telegramId, recentMessages);
+      } catch (insideJokeError) {
+        console.error("Inside joke detection failed:", insideJokeError);
+      }
     }
 
     // Sort by importance descending so the most critical facts are first

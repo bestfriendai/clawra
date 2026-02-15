@@ -25,6 +25,21 @@ export interface RelationshipEvent {
   isRecurring: boolean;
 }
 
+export interface RelationshipXPRecord {
+  telegramId: number;
+  totalXP: number;
+  level: number;
+  levelName: string;
+  lastXPGain: number;
+  streakDays: number;
+}
+
+export interface AwardRelationshipXPResult {
+  leveledUp: boolean;
+  newLevel?: number;
+  levelName?: string;
+}
+
 export interface ReferralStats {
   totalReferrals: number;
   totalCreditsEarned: number;
@@ -73,6 +88,31 @@ export interface UserPreferences {
   missYouHourUtc?: number;
   createdAt?: number;
   updatedAt?: number;
+}
+
+export interface FreeTierUsage {
+  telegramId: number;
+  date: string;
+  messages: number;
+  selfies: number;
+  voiceNotes: number;
+}
+
+export interface EmotionalSnapshotRecord {
+  emotion: string;
+  intensity: number;
+  microEmotions?: string[];
+  timestamp: number;
+  relationshipDay?: number;
+  significantEvent?: string;
+}
+
+export interface ProfileEnvironment {
+  homeDescription: string;
+  bedroomDetails: string;
+  favoriteLocations: string[];
+  currentOutfit?: string;
+  currentOutfitDay?: string;
 }
 
 // Helper to call Convex functions by string path (works without generated API types)
@@ -129,6 +169,7 @@ export const convex = {
     eyeColor?: string;
     personality: string;
     backstory?: string;
+    environment?: ProfileEnvironment;
   }) => mutation("girlfriendProfiles:create", args),
   updateProfile: (args: {
     telegramId: number;
@@ -144,6 +185,7 @@ export const convex = {
     voiceId?: string;
     referenceImageUrl?: string;
     isConfirmed?: boolean;
+    environment?: ProfileEnvironment;
   }) => mutation("girlfriendProfiles:update", args),
   confirmProfile: (telegramId: number, referenceImageUrl: string) =>
     mutation("girlfriendProfiles:setConfirmed", {
@@ -262,6 +304,14 @@ export const convex = {
     resultUrl?: string;
   }) => mutation("usage:log", args),
 
+  upsertFreeTierUsage: (
+    telegramId: number,
+    date: string,
+    type: "message" | "selfie" | "voiceNote"
+  ): Promise<FreeTierUsage> => mutation("freeTierUsage:upsertFreeTierUsage", { telegramId, date, type }),
+  getFreeTierUsage: (telegramId: number, date: string): Promise<FreeTierUsage | null> =>
+    query("freeTierUsage:getFreeTierUsage", { telegramId, date }),
+
   // Admin
   getStats: (): Promise<any> => query("admin:getStats"),
   getDetailedStats: (): Promise<any> => query("admin:getDetailedStats"),
@@ -307,6 +357,20 @@ export const convex = {
   }),
   clearMemory: (telegramId: number) =>
     mutation("memoryFacts:clearForUser", { telegramId }),
+
+  saveEmotionalSnapshot: (
+    telegramId: number,
+    snapshot: EmotionalSnapshotRecord
+  ): Promise<string> =>
+    mutation("emotionalSnapshots:saveEmotionalSnapshot", {
+      telegramId,
+      snapshot,
+    }),
+  getRecentSnapshots: (
+    telegramId: number,
+    limit?: number
+  ): Promise<EmotionalSnapshotRecord[]> =>
+    query("emotionalSnapshots:getRecentSnapshots", { telegramId, limit }),
 
   // Processed Chain Txs
   getProcessedTx: (txHash: string) =>
@@ -418,6 +482,17 @@ export const convex = {
     eventType: string
   ): Promise<RelationshipEvent[]> =>
     query("relationshipEvents:getEventsByTypePublic", { telegramId, eventType }),
+
+  getRelationshipXP: (telegramId: number): Promise<RelationshipXPRecord | null> =>
+    query("relationshipXP:getRelationshipXP", { telegramId }),
+  awardRelationshipXP: (
+    telegramId: number,
+    amount: number,
+    action: string
+  ): Promise<AwardRelationshipXPResult> =>
+    mutation("relationshipXP:awardXP", { telegramId, amount, action }),
+  updateRelationshipXPStreak: (telegramId: number): Promise<{ streakDays: number }> =>
+    mutation("relationshipXP:updateStreak", { telegramId }),
 
   // Session State
   getSessionValue: (telegramId: number, key: string): Promise<string | null> =>

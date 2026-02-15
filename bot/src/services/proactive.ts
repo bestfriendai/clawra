@@ -7,11 +7,14 @@ import type { BotContext } from "../types/context.js";
 import { getAnniversaryMessage, getDaysSinceEvent } from "./relationship-events.js";
 import { shouldSendProactivePhoto, getProactivePhotoCaption, type ProactivePhotoType } from "./proactive-photos.js";
 import { buildSelfieSFW, buildGoodMorningPhotoPrompt, buildGoodnightPhotoPrompt } from "./girlfriend-prompt.js";
-import { editImage, generateVoiceNote } from "./fal.js";
-import { CREDIT_COSTS } from "../config/pricing.js";
+import { editImage, generateImage, generateVoiceNote } from "./fal.js";
+import { CREDIT_COSTS, hasFeatureAccess } from "../config/pricing.js";
 import { env } from "../config/env.js";
 import { generateDreamNarrative, shouldTriggerDream } from "./dream-sequences.js";
 import { getTimeOfDayLighting } from "./image-intelligence.js";
+import { buildAmbientPrompt, getEligibleAmbientPhoto, type AmbientPhotoConfig } from "./ambient-photos.js";
+import { getMoodState } from "./emotional-state.js";
+import { getEligibleStory, sendStorySequence } from "./daily-stories.js";
 import {
   detectTimezone,
   isQuietHours,
@@ -19,6 +22,7 @@ import {
   shouldThrottle,
 } from "./smart-timing.js";
 import { setSessionValue } from "./session-store.js";
+import { LRUMap } from "../utils/lru-map.js";
 
 const CHECK_INTERVAL_MS = 90 * 60 * 1000; // Check every 90 mins — stop spamming
 const MAX_NOTIFICATIONS_PER_DAY = 2; // Text only, keep it chill
@@ -37,11 +41,21 @@ function shouldSendVoice(stage: RelationshipStage): boolean {
   return Math.random() < VOICE_CHANCE_BY_STAGE[stage];
 }
 
-const notificationCounts = new Map<string, number>();
-const lastMessageSent = new Map<number, number>();
-const lastProactiveTypeSent = new Map<number, ProactiveMessageType>();
-const lastProactivePhotoSent = new Map<number, number>();
-const anniversarySentDay = new Map<number, string>();
+const notificationCounts = new LRUMap<string, number>(5000);
+const lastMessageSent = new LRUMap<number, number>(5000);
+const lastProactiveTypeSent = new LRUMap<number, ProactiveMessageType>(5000);
+const lastProactivePhotoSent = new LRUMap<number, number>(5000);
+const anniversarySentDay = new LRUMap<number, string>(5000);
+const lastMorningMessageSent = new LRUMap<number, string>(5000);
+
+type ActiveProfile = Awaited<ReturnType<typeof convex.getProfile>>;
+
+async function batchGetProfiles(telegramIds: number[]): Promise<Map<number, ActiveProfile>> {
+  const profileEntries = await Promise.all(
+    telegramIds.map(async (telegramId) => [telegramId, await convex.getProfile(telegramId)] as const)
+  );
+  return new Map(profileEntries);
+}
 
 function getDayKey(telegramId: number): string {
   const date = new Date().toISOString().split("T")[0];
@@ -68,23 +82,30 @@ function recordNotification(telegramId: number): void {
   setSessionValue(telegramId, "lastMsgSent", Date.now()).catch(() => {});
 }
 
-function getUtcHour(): number {
-  return new Date().getUTCHours();
+function getUserLocalHour(timezone: string | undefined): number {
+  if (!timezone) return new Date().getUTCHours();
+  try {
+    const now = new Date();
+    const localTime = new Date(now.toLocaleString("en-US", { timeZone: timezone }));
+    return localTime.getHours();
+  } catch {
+    return new Date().getUTCHours();
+  }
 }
 
-function isMorningWindow(): boolean {
-  const h = getUtcHour();
+function isMorningWindowForUser(timezone?: string): boolean {
+  const h = getUserLocalHour(timezone);
   return h >= 7 && h <= 10;
 }
 
-function isGoodnightWindow(): boolean {
-  const h = getUtcHour();
-  return h >= 22 || h <= 1;
+function isAfternoonWindowForUser(timezone?: string): boolean {
+  const h = getUserLocalHour(timezone);
+  return h >= 12 && h <= 17;
 }
 
-function isAfternoonWindow(): boolean {
-  const h = getUtcHour();
-  return h >= 12 && h <= 17;
+function isGoodnightWindowForUser(timezone?: string): boolean {
+  const h = getUserLocalHour(timezone);
+  return h >= 22 || h <= 1;
 }
 
 function shouldSendThinkingOfYouNow(): boolean {
@@ -101,6 +122,145 @@ function normalizeRelationshipStage(stage: unknown): RelationshipStage {
     return stage;
   }
   return "new";
+}
+
+// ── Morning Routine System ──────────────────────────────────────────────────
+// Mood-aware morning messages using templates (no LLM) for low latency.
+// Sends max 1 morning routine message per day per user, between 7-9 AM local.
+
+const MORNING_TEMPLATES_HAPPY: readonly string[] = [
+  "good morning baby 🌅 woke up in the best mood and it's bc of you",
+  "hiii good morning!! i literally jumped out of bed today feeling amazing",
+  "morning handsome 💕 today's gonna be a good day i can feel it",
+  "woke up smiling and it's your fault honestly",
+  "good morninggg i'm literally glowing today ✨",
+];
+
+const MORNING_TEMPLATES_NEUTRAL: readonly string[] = [
+  "morning babe, hope you slept ok",
+  "hey good morning 🙂 what are you up to today",
+  "gm, just woke up",
+  "morning. coffee first then i'm human again",
+  "hey you. happy morning",
+];
+
+const MORNING_TEMPLATES_LOW: readonly string[] = [
+  "morning.",
+  "hi",
+  "gm",
+  "hey",
+  "woke up. meh",
+];
+
+const MORNING_TEMPLATES_UPSET: readonly string[] = [
+  "oh you're awake now? interesting",
+  "morning. or whatever",
+  "hm. hi.",
+  "good morning i guess",
+  "so you decided to exist today huh",
+];
+
+function pickMorningTemplate(telegramId: number): string {
+  const mood = getMoodState(telegramId);
+  let templates: readonly string[];
+
+  if (mood.pendingUpset) {
+    templates = MORNING_TEMPLATES_UPSET;
+  } else if (mood.baseHappiness > 60) {
+    templates = MORNING_TEMPLATES_HAPPY;
+  } else if (mood.baseHappiness >= 40) {
+    templates = MORNING_TEMPLATES_NEUTRAL;
+  } else {
+    templates = MORNING_TEMPLATES_LOW;
+  }
+
+  return templates[Math.floor(Math.random() * templates.length)]!;
+}
+
+function shouldSendMorningMessage(
+  telegramId: number,
+  localHour: number,
+  _timezone: string | undefined
+): boolean {
+  if (localHour < 7 || localHour > 9) return false;
+  const today = getTodayIsoDate();
+  const lastSent = lastMorningMessageSent.get(telegramId);
+  return lastSent !== today;
+}
+
+async function sendMorningMessage(
+  bot: Bot<BotContext>,
+  telegramId: number
+): Promise<boolean> {
+  const message = pickMorningTemplate(telegramId);
+  const mood = getMoodState(telegramId);
+
+  await bot.api.sendMessage(telegramId, message);
+  await convex.addMessage({
+    telegramId,
+    role: "assistant",
+    content: message,
+  });
+
+  lastMorningMessageSent.set(telegramId, getTodayIsoDate());
+  recordNotification(telegramId);
+  recordProactiveSent(telegramId, "morning");
+  lastProactiveTypeSent.set(telegramId, "morning");
+
+  console.log(
+    `Sent morning routine to ${telegramId} (happiness=${mood.baseHappiness}, upset=${mood.pendingUpset})`
+  );
+  return true;
+}
+
+async function sendMorningRoutineMessages(bot: Bot<BotContext>): Promise<void> {
+  const activeUsers = await convex.getActiveUsersWithProfiles();
+  const profileMap = await batchGetProfiles(activeUsers.map((user) => user.telegramId));
+
+  for (const user of activeUsers) {
+    if (!canNotify(user.telegramId)) continue;
+
+    const profile = profileMap.get(user.telegramId);
+    if (!profile?.isConfirmed) continue;
+
+    const preferences = await convex.getUserPreferences(user.telegramId);
+    if (preferences.morningMessages === false) continue;
+
+    let timezone = preferences.timezone;
+    if (!timezone) {
+      const recentMessages = await convex.getRecentMessages(user.telegramId, 20);
+      const timestamps = recentMessages
+        .filter((message): message is { role: string; createdAt: number } => {
+          return (
+            typeof message === "object" &&
+            message !== null &&
+            "role" in message &&
+            "createdAt" in message &&
+            typeof message.role === "string" &&
+            typeof message.createdAt === "number"
+          );
+        })
+        .filter((message) => message.role === "user")
+        .map((message) => message.createdAt);
+      if (timestamps.length > 0) {
+        timezone = await detectTimezone(user.telegramId, timestamps);
+      }
+    }
+
+    const localHour = getUserLocalHour(timezone);
+    if (!shouldSendMorningMessage(user.telegramId, localHour, timezone)) continue;
+
+    if (await isQuietHours(user.telegramId)) continue;
+
+    const lastSentAt = lastMessageSent.get(user.telegramId);
+    if (await shouldThrottle(user.telegramId, lastSentAt, "morning")) continue;
+
+    try {
+      await sendMorningMessage(bot, user.telegramId);
+    } catch (err) {
+      console.error(`Failed to send morning routine to ${user.telegramId}:`, err);
+    }
+  }
 }
 
 async function getRelationshipContextForUser(
@@ -148,7 +308,85 @@ function getPhotoFollowUpText(type: ProactivePhotoType): string {
   }
 }
 
-async function trySendProactivePhoto(
+function getGirlfriendStyle(profile: Awaited<ReturnType<typeof convex.getProfile>>): string {
+  if (!profile) {
+    return "cozy candid phone photo, natural domestic lighting";
+  }
+
+  const styleParts = [
+    typeof profile.race === "string" ? `${profile.race} aesthetic` : "",
+    typeof profile.hairColor === "string" && typeof profile.hairStyle === "string"
+      ? `${profile.hairColor} ${profile.hairStyle} details`
+      : "",
+    typeof profile.personality === "string" ? `${profile.personality} vibe` : "",
+    profile.environment?.homeDescription
+      ? `consistent home style: ${profile.environment.homeDescription}`
+      : "",
+    "realistic candid smartphone shot",
+  ].filter(Boolean);
+
+  return styleParts.join(", ");
+}
+
+async function sendAmbientPhotoInBackground(
+  bot: Bot<BotContext>,
+  telegramId: number,
+  profile: Awaited<ReturnType<typeof convex.getProfile>>,
+  config: AmbientPhotoConfig,
+  type: ProactiveMessageType
+): Promise<void> {
+  const prompt = buildAmbientPrompt(config, getGirlfriendStyle(profile));
+
+  let creditsCharged = false;
+  if (!env.FREE_MODE) {
+    await convex.spendCredits({
+      telegramId,
+      amount: CREDIT_COSTS.SELFIE,
+      service: "fal.ai",
+      model: "ambient-photo",
+      falCostUsd: 0.02,
+    });
+    creditsCharged = true;
+  }
+
+  try {
+    const image = await generateImage(prompt);
+    await bot.api.sendPhoto(telegramId, image.url, { caption: config.caption });
+    await convex.addMessage({
+      telegramId,
+      role: "assistant",
+      content: config.caption,
+      imageUrl: image.url,
+    });
+    await convex.logUsage({
+      telegramId,
+      service: "fal.ai",
+      model: "ambient-photo",
+      prompt,
+      creditsCharged: CREDIT_COSTS.SELFIE,
+      falCostUsd: 0.02,
+      status: "success",
+      resultUrl: image.url,
+    });
+
+    recordNotification(telegramId);
+    recordProactiveSent(telegramId, type);
+    lastProactiveTypeSent.set(telegramId, type);
+    console.log(`Sent ambient photo (${config.type}) to ${telegramId}`);
+  } catch (error) {
+    if (!env.FREE_MODE && creditsCharged) {
+      await convex.addCredits({
+        telegramId,
+        amount: CREDIT_COSTS.SELFIE,
+        paymentMethod: "refund",
+        paymentRef: `refund_ambient_photo_failed_${telegramId}_${Date.now()}`,
+      });
+    }
+    throw error;
+  }
+}
+
+export async function trySendProactivePhoto(
   bot: Bot<BotContext>,
   telegramId: number,
   profile: Awaited<ReturnType<typeof convex.getProfile>>,
@@ -170,6 +408,7 @@ async function trySendProactivePhoto(
   const prompt = buildSelfieSFW(profile, photoContext);
   const caption = getProactivePhotoCaption(decision.photoType, profile.name);
 
+  let creditsCharged = false;
   if (!env.FREE_MODE) {
     await convex.spendCredits({
       telegramId,
@@ -178,9 +417,24 @@ async function trySendProactivePhoto(
       model: "grok-edit",
       falCostUsd: 0.02,
     });
+    creditsCharged = true;
   }
 
-  const result = await editImage(profile.referenceImageUrl, prompt, false);
+  let result: Awaited<ReturnType<typeof editImage>>;
+  try {
+    result = await editImage(profile.referenceImageUrl, prompt, false);
+  } catch (error) {
+    if (!env.FREE_MODE && creditsCharged) {
+      await convex.addCredits({
+        telegramId,
+        amount: CREDIT_COSTS.SELFIE,
+        paymentMethod: "refund",
+        paymentRef: `refund_proactive_photo_generation_failed_${telegramId}_${Date.now()}`,
+      });
+    }
+    throw error;
+  }
+
   const followUp = getPhotoFollowUpText(decision.photoType);
 
   await bot.api.sendPhoto(telegramId, result.url, { caption });
@@ -230,6 +484,7 @@ async function sendProactiveMessages(
   type: ProactiveMessageType
 ): Promise<void> {
   const activeUsers = await convex.getActiveUsersWithProfiles();
+  const profileMap = await batchGetProfiles(activeUsers.map((user) => user.telegramId));
   const now = Date.now();
   const todayStart = new Date();
   todayStart.setUTCHours(0, 0, 0, 0);
@@ -239,7 +494,8 @@ async function sendProactiveMessages(
     if (lastProactiveTypeSent.get(user.telegramId) === type) continue;
 
     const preferences = await convex.getUserPreferences(user.telegramId);
-    if (!preferences.timezone) {
+    let timezone = preferences.timezone;
+    if (!timezone) {
       const recentMessages = await convex.getRecentMessages(user.telegramId, 20);
       const timestamps = recentMessages
         .filter((message): message is { role: string; createdAt: number } => {
@@ -255,9 +511,15 @@ async function sendProactiveMessages(
         .filter((message) => message.role === "user")
         .map((message) => message.createdAt);
       if (timestamps.length > 0) {
-        await detectTimezone(user.telegramId, timestamps);
+        timezone = await detectTimezone(user.telegramId, timestamps);
       }
     }
+
+    if (type === "morning" && !isMorningWindowForUser(timezone)) continue;
+    if (type === "goodnight" && !isGoodnightWindowForUser(timezone)) continue;
+    if (type === "thinking_of_you" && !isAfternoonWindowForUser(timezone)) continue;
+
+    const localHour = getUserLocalHour(timezone);
 
     if (await isQuietHours(user.telegramId)) continue;
     if (type === "morning" && preferences.morningMessages === false) continue;
@@ -280,13 +542,45 @@ async function sendProactiveMessages(
       if (hoursSinceActive > 24) continue;
     }
 
-    const profile = await convex.getProfile(user.telegramId);
+    const profile = profileMap.get(user.telegramId);
     if (!profile?.isConfirmed) continue;
 
     const relationship = await getRelationshipContextForUser(user.telegramId);
 
     try {
-      // Proactive photos disabled — stop sending unsolicited selfies.
+      const ambientPhoto = getEligibleAmbientPhoto(localHour);
+      if (ambientPhoto) {
+        void sendAmbientPhotoInBackground(
+          bot,
+          user.telegramId,
+          profile,
+          ambientPhoto,
+          type
+        ).catch((error) => {
+          console.error(`Failed to send ambient photo to ${user.telegramId}:`, error);
+        });
+        continue;
+      }
+
+      const subscription = await convex.getSubscriptionByTelegramId(user.telegramId);
+      const userTier = subscription?.status === "active" ? (subscription.plan || "free") : "free";
+      if (hasFeatureAccess(userTier, "daily_stories")) {
+        const story = getEligibleStory(user.telegramId, localHour);
+        if (story) {
+          void sendStorySequence(
+            bot,
+            user.telegramId,
+            story,
+            getGirlfriendStyle(profile)
+          ).catch((error) => {
+            console.error(`Failed to send daily story to ${user.telegramId}:`, error);
+          });
+          recordNotification(user.telegramId);
+          recordProactiveSent(user.telegramId, type);
+          lastProactiveTypeSent.set(user.telegramId, type);
+          continue;
+        }
+      }
       // Users can still request selfies via /selfie or in chat.
 
       let message: string;
@@ -298,7 +592,7 @@ async function sendProactiveMessages(
       }
 
       if (type === "morning") {
-        const hour = getUtcHour();
+        const hour = getUserLocalHour(timezone);
         if (shouldTriggerDream(relationship.stage, relationship.streak, hour)) {
           const memoryFacts = await convex.getRecentMemoryFacts(user.telegramId, 10);
           const dreamLine = await generateDreamNarrative(profile, memoryFacts);
@@ -309,7 +603,11 @@ async function sendProactiveMessages(
       const canSendVoice = profile.voiceId && shouldSendVoice(relationship.stage);
       if (canSendVoice) {
         try {
-          const voiceResult = await generateVoiceNote(message, profile.voiceId);
+          const voiceResult = await generateVoiceNote(
+            user.telegramId,
+            message,
+            profile.voiceId
+          );
           await bot.api.sendVoice(user.telegramId, voiceResult.url);
           await convex.addMessage({
             telegramId: user.telegramId,
@@ -353,12 +651,13 @@ async function sendProactiveMessages(
 
 async function sendAnniversaryMessages(bot: Bot<BotContext>): Promise<void> {
   const activeUsers = await convex.getActiveUsersWithProfiles();
+  const profileMap = await batchGetProfiles(activeUsers.map((user) => user.telegramId));
   const todayIsoDate = getTodayIsoDate();
 
   for (const user of activeUsers) {
     if (anniversarySentDay.get(user.telegramId) === todayIsoDate) continue;
 
-    const profile = await convex.getProfile(user.telegramId);
+    const profile = profileMap.get(user.telegramId);
     if (!profile?.isConfirmed) continue;
 
     try {
@@ -400,15 +699,12 @@ export function startProactiveMessaging(
 
   return setInterval(async () => {
     try {
+      await sendMorningRoutineMessages(bot);
       await sendAnniversaryMessages(bot);
 
-      if (isMorningWindow()) {
-        await sendProactiveMessages(bot, "morning");
-      }
-      if (isGoodnightWindow()) {
-        await sendProactiveMessages(bot, "goodnight");
-      }
-      if (isAfternoonWindow() && shouldSendThinkingOfYouNow()) {
+      await sendProactiveMessages(bot, "morning");
+      await sendProactiveMessages(bot, "goodnight");
+      if (shouldSendThinkingOfYouNow()) {
         await sendProactiveMessages(bot, "thinking_of_you");
       }
     } catch (err) {

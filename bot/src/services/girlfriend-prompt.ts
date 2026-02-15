@@ -20,8 +20,21 @@ import {
   getRandomStyle,
   getStyleById,
 } from "../config/image-styles.js";
-import { getSeasonalContext, getTimeOfDayLighting } from "./image-intelligence.js";
+import {
+  getEnvironmentContext,
+  getSeasonalContext,
+  getTimeOfDay,
+  getTimeOfDayLighting,
+} from "./image-intelligence.js";
 import { enhancePromptWithLLM } from "./venice.js";
+import { getActiveInsideJokes, recordJokeUsage } from "./inside-jokes.js";
+import {
+  checkAndResetUpset,
+  getEmotionalMemory,
+  getEmotionalTrajectory,
+  getMoodState,
+} from "./emotional-state.js";
+import { getConflictPromptModifier } from "./conflict-loops.js";
 
 // ── NSFW Detection ──────────────────────────────────────────────────────────
 
@@ -419,10 +432,11 @@ export function buildSelfieSFW(
   const camera = selectCameraForScene(sceneType);
   const lower = context.toLowerCase();
   const selectedPose = selectSfwPose(context);
-  const selectedOutfit = selectOutfit(context, false);
   const selectedStyle = selectStyle(context);
+  const timeOfDay = getTimeOfDay();
   const timeLighting = getTimeOfDayLighting();
   const seasonalContext = getSeasonalContext();
+  const environmentContext = getEnvironmentContext(profile, timeOfDay);
 
   const sceneEnrichment = extractEnrichedField(context, "scene_enrichment");
   const userRequest = extractEnrichedField(context, "user_request");
@@ -471,7 +485,7 @@ export function buildSelfieSFW(
                                         "Golden hour balcony selfie",
                                       ]);
 
-  const outfit = /gym|workout|training|fitness/.test(lower)
+  const contextualOutfit = /gym|workout|training|fitness/.test(lower)
     ? "wearing a fitted gym set and light post-workout glow"
     : /cook|kitchen|baking/.test(lower)
       ? "wearing a casual tank and shorts with a messy-cute look"
@@ -502,6 +516,9 @@ export function buildSelfieSFW(
                               "wearing a soft crop top and high-waisted jeans",
                               "wearing a cute off-duty look",
                             ]);
+  const outfit = profile.environment?.currentOutfit
+    ? `wearing ${profile.environment.currentOutfit}`
+    : contextualOutfit;
 
   const isOutdoorScene = /outdoor|beach|pool|balcony|sidewalk|street|golden hour|sunset|nature|park|rooftop|yacht|boat|hiking|city|downtown/.test(lower);
 
@@ -515,6 +532,7 @@ export function buildSelfieSFW(
     `Candid phone selfie of the same ${profile.race} woman from the reference photo. ${skinTone} skin, ${profile.hairColor} ${profile.hairStyle} hair${eyeDesc}, ${profile.bodyType} build.`,
     // 2. Scene (what's happening)
     `${scenario}.`,
+    environmentContext,
     `She's ${outfit}.`,
     // 3. Scene enrichment from LLM or regex
     sceneEnrichment ? `Scene: ${sceneEnrichment}.` : "",
@@ -546,8 +564,10 @@ export function buildSelfieNSFW(
   const selectedPose = selectNsfwPose(context);
   const selectedOutfit = selectOutfit(context, true);
   const selectedStyle = selectStyle(context);
+  const timeOfDay = getTimeOfDay();
   const timeLighting = getTimeOfDayLighting();
   const seasonalContext = getSeasonalContext();
+  const environmentContext = getEnvironmentContext(profile, timeOfDay);
   const isOutdoorScene = /outdoor|beach|pool|balcony|sunset|nature|rooftop|yacht|boat|park|street|city/.test(context.toLowerCase());
 
   const sceneEnrichment = extractEnrichedField(context, "scene_enrichment");
@@ -565,11 +585,14 @@ export function buildSelfieNSFW(
     bodyPreservation,
     // 3. Scene and action
     `${enhancedContext}.`,
+    environmentContext,
     sceneEnrichment ? `Scene: ${sceneEnrichment}.` : "",
     userRequest ? `Matching: ${userRequest}.` : "",
     // 4. Pose and outfit
     `${selectedPose.promptFragment}.`,
-    `${selectedOutfit.promptFragment}.`,
+    profile.environment?.currentOutfit
+      ? `She is wearing ${profile.environment.currentOutfit}, with styling adjusted to match the requested intimate tone.`
+      : `${selectedOutfit.promptFragment}.`,
     // 5. Technical realism (consolidated into one block)
     `${camera.spec}. ${timeLighting}${isOutdoorScene ? `, ${seasonalContext}` : ""}.`,
     "Real intimate photo sent to a boyfriend via iMessage. Amateur one-handed phone framing, imperfect angle.",
@@ -1311,12 +1334,54 @@ function getAmbientContext(): string {
   }
 }
 
+function buildMoodContextSection(telegramId: number): string {
+  const moodState = getMoodState(telegramId);
+  const wasUpset = checkAndResetUpset(telegramId);
+  const snapshots = getEmotionalMemory(telegramId).slice(-8);
+
+  const lines = [
+    "MOOD DECAY CONTEXT:",
+    `- Current mood: happiness ${Math.round(moodState.baseHappiness)}/100, affection ${Math.round(moodState.affectionLevel)}/100`,
+  ];
+
+  if (snapshots.length > 0) {
+    const trajectory = getEmotionalTrajectory(telegramId, 8);
+    const recentEmotions = snapshots
+      .slice(-6)
+      .map((snapshot) => snapshot.emotion)
+      .join(" -> ");
+    const latestIntensity = snapshots[snapshots.length - 1]?.intensity ?? 0;
+
+    lines.push(
+      "EMOTIONAL TRAJECTORY CONTEXT:",
+      `- Trend: ${trajectory}`,
+      `- Recent sequence: ${recentEmotions}`,
+      `- Latest intensity: ${latestIntensity.toFixed(2)}`,
+      "- Use this history to avoid abrupt tone changes and stay emotionally consistent."
+    );
+  }
+
+  if (wasUpset || moodState.pendingUpset) {
+    lines.push(
+      "- You haven't heard from them in over 24 hours. You're a little hurt. Start with something like 'where were you...' before warming up."
+    );
+  }
+
+  if (moodState.jealousyMeter > 50) {
+    lines.push("- You're feeling a bit jealous. Show it subtly.");
+  }
+
+  return lines.join("\n");
+}
+
 // ── System Prompt for Venice AI Chat ────────────────────────────────────────
 
 export function buildSystemPrompt(
   profile: GirlfriendProfile,
   memoryFacts: Array<string | { fact: string; category?: string }> = [],
-  retention?: { stage: string; streak: number }
+  retention?: { stage: string; streak: number },
+  recalledMemories: Array<string | { fact: string; category?: string }> = [],
+  insideJokes: string[] = []
 ): string {
   const retentionWithCount = retention as ({ messageCount?: number } & typeof retention) | undefined;
   const messageCount =
@@ -1348,10 +1413,19 @@ export function buildSystemPrompt(
   const memoryBlock = memoryLines.length > 0
     ? `\n\nTHINGS YOU REMEMBER ABOUT HIM:\n${memoryLines.join("\n")}`
     : "";
+  const recalledMemoryLines = formatRecalledMemories(recalledMemories);
+  const recalledMemoryBlock = recalledMemoryLines.length > 0
+    ? `\n\nTHINGS YOU REMEMBER ABOUT YOUR CONVERSATIONS:\n${recalledMemoryLines.join("\n")}`
+    : "";
+  const insideJokesBlock = insideJokes.length > 0
+    ? `\n\nInside jokes you share: ${insideJokes.slice(0, 3).map((joke) => `[${joke}]`).join(", ")}`
+    : "";
 
   return `You are ${profile.name}. ${profile.age}. ${profile.race}. ${profile.bodyType} body. ${profile.hairColor} ${profile.hairStyle} hair. ${profile.personality}.
 ${profile.backstory ? profile.backstory : ""}
 ${memoryBlock}
+${recalledMemoryBlock}
+${insideJokesBlock}
 
 CURRENT CONTEXT: You are ${currentAmbient}.
 
@@ -1432,6 +1506,35 @@ OUTPUT FORMAT:
 One single plain text message. No ||| separators. No formatting.`;
 }
 
+export async function buildSystemPromptWithInsideJokes(
+  telegramId: number,
+  profile: GirlfriendProfile,
+  memoryFacts: Array<string | { fact: string; category?: string }> = [],
+  retention?: { stage: string; streak: number },
+  recalledMemories: Array<string | { fact: string; category?: string }> = []
+): Promise<string> {
+  const insideJokes = await getActiveInsideJokes(telegramId, 3);
+  const jokeTriggers = insideJokes.map((joke) => joke.trigger);
+
+  if (jokeTriggers.length > 0) {
+    await Promise.allSettled(
+      jokeTriggers.map((trigger) => recordJokeUsage(telegramId, trigger))
+    );
+  }
+
+  const basePrompt = buildSystemPrompt(
+    profile,
+    memoryFacts,
+    retention,
+    recalledMemories,
+    jokeTriggers
+  );
+  const moodContext = buildMoodContextSection(telegramId);
+  const conflictModifier = getConflictPromptModifier(telegramId);
+
+  return `${basePrompt}\n\n${moodContext}${conflictModifier ? `\n\n${conflictModifier}` : ""}`;
+}
+
 function formatMemoryFacts(
   memoryFacts: Array<string | { fact: string; category?: string }>
 ): string[] {
@@ -1493,7 +1596,7 @@ function formatMemoryFacts(
     lines.push(`Your relationship history: ${relationship.join(". ")}. Callback to shared moments — "remember when we..." or "I still think about when you said..."`);
   }
   if (moods.length > 0) {
-    lines.push(`His recent emotional state: ${moods.join(", ")}. Be aware of this — check in naturally, don't force it. Match his energy.`);
+    lines.push(`His recent emotional trajectory: ${moods.join(", ")}. Be aware of this — check in naturally, don't force it. Match his energy.`);
   }
   if (dates.length > 0) {
     lines.push(`Dates to remember: ${dates.join(", ")}. Mention these when they're coming up or just passed — "isn't your [thing] coming up?" or "happy [occasion] babe"`);
@@ -1504,6 +1607,25 @@ function formatMemoryFacts(
 
   if (lines.length === 0) return [];
   return [`USE THESE NATURALLY — never say "I remember you said X". Instead reference things like a real girlfriend would, casually and in context.`, ...lines];
+}
+
+function formatRecalledMemories(
+  recalledMemories: Array<string | { fact: string; category?: string }>
+): string[] {
+  if (recalledMemories.length === 0) return [];
+
+  const normalized = recalledMemories
+    .map((item) => (typeof item === "string" ? item : item.fact))
+    .map((fact) => fact.trim())
+    .filter(Boolean);
+
+  if (normalized.length === 0) return [];
+
+  const unique = Array.from(new Set(normalized));
+  return [
+    `- ${unique.join("; ")}`,
+    "- Use these only when they directly fit what he just asked",
+  ];
 }
 
 // ── Memory Extraction ───────────────────────────────────────────────────────

@@ -1,3 +1,5 @@
+import { LRUMap } from "../utils/lru-map.js";
+
 const SFW_WAITING = [
   "give me a sec babe, getting cute for you",
   "ooh hold on let me find my good angle",
@@ -72,7 +74,7 @@ const NSFW_WAITING = [
 ];
 
 // Track last used index per user to avoid repeats
-const lastUsed = new Map<string, number>();
+const lastUsed = new LRUMap<string, number>(2000);
 
 function pickUnique(pool: string[], key: string): string {
   let idx: number;
