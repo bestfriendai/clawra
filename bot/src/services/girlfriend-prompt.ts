@@ -391,6 +391,7 @@ export function buildReferencePrompt(profile: {
     "Skin has visible pores on the nose and cheeks, uneven tone around the jaw, slight shine on the forehead from natural oil.",
     "The image has typical phone-camera problems: noticeable grain in the shadows, soft focus around the edges, slightly harsh contrast, and uneven white balance that runs warm.",
     "Parts of the image are slightly overexposed or underexposed because the phone metered for her face and let everything else clip.",
+    "She is fully clothed in casual everyday clothes. NOT nude, NOT naked, NOT lingerie, NOT swimsuit, NOT revealing.",
     "This looks like it came from someone's camera roll, not a photoshoot. Nothing about the composition is intentional or flattering.",
   ].join(" ");
 }

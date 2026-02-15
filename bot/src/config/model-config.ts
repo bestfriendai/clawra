@@ -102,7 +102,7 @@ export const QUALITY_CREDIT_COSTS = {
 } as const;
 
 const ZIMAGE_NEGATIVE_BASE =
-  "AI generated, plastic skin, smooth skin, airbrushed, illustration, cartoon, 3D render, uncanny valley, wax figure, mannequin, doll-like, overly symmetrical face, blurry, distorted hands, extra fingers, deformed, professional photoshoot, studio lighting setup, ring light catchlights";
+  "nude, naked, topless, nsfw, lingerie, underwear, bikini, cleavage, exposed skin, sexually suggestive, AI generated, plastic skin, smooth skin, airbrushed, illustration, cartoon, 3D render, uncanny valley, wax figure, mannequin, doll-like, overly symmetrical face, blurry, distorted hands, extra fingers, deformed, professional photoshoot, studio lighting setup, ring light catchlights";
 
 const ZIMAGE_NEGATIVE_EXTRAS = [
   "watermark, text overlay, logo, signature, copyright",
@@ -129,7 +129,7 @@ export function getZImageNegativePrompt(): string {
 export const ZIMAGE_BASE_DEFAULTS = {
   num_inference_steps: 28,
   guidance_scale: 4.0,
-  enable_safety_checker: false,
+  enable_safety_checker: true,
   num_images: 1,
   image_size: { width: 768, height: 1344 },
   output_format: "jpeg",
@@ -139,7 +139,7 @@ export const ZIMAGE_BASE_DEFAULTS = {
 // Turbo: negative_prompt and guidance_scale are ignored by the distilled model
 export const ZIMAGE_TURBO_DEFAULTS = {
   num_inference_steps: 8,
-  enable_safety_checker: false,
+  enable_safety_checker: true,
   num_images: 1,
   image_size: { width: 720, height: 1280 },
   acceleration: "regular",
@@ -149,8 +149,8 @@ export const FLUX_PRO_REFERENCE_DEFAULTS = {
   num_images: 1,
   output_format: "jpeg",
   image_size: { width: 768, height: 1344 },
-  safety_tolerance: "5",
-  enable_safety_checker: false,
+  safety_tolerance: "2",
+  enable_safety_checker: true,
 } as const;
 
 export function getModelConfig(): ModelConfig {

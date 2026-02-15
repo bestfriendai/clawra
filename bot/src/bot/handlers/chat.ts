@@ -85,24 +85,6 @@ type Mood = "playful" | "romantic" | "sexual" | "casual" | "emotional";
 //   /i'?ll send (you )?(a )?(pic|photo|snap)/i,
 // ];
 
-const PRE_IMAGE_MESSAGES = [
-  "hold on",
-  "one sec",
-  "gimme a sec",
-  "waittt",
-  "brb taking it rn",
-  "ok wait",
-  "lol ok hold on",
-  "lemme take this real quick",
-  "oooh ok one sec",
-  "don't go anywhere",
-  "ok lemme find the right angle",
-  "hold onnn",
-  "wait i need better lighting lol",
-  "ok you asked for it",
-  "let me make sure i look cute first",
-  "brb",
-];
 
 const IMAGE_FAIL_EXCUSES = [
   "ugh my camera glitched sorry babe",
@@ -384,10 +366,7 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
         ctx.girlfriend.name
       );
       if (stageUnlock) {
-        await sendAsMultipleTexts({
-          ctx,
-          messages: [stageUnlock],
-        });
+        sendAsMultipleTexts({ ctx, messages: [stageUnlock] }).catch(() => {});
         extraSent = true;
       }
     }
@@ -398,10 +377,7 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
         ctx.girlfriend.name
       );
       if (streakMilestone) {
-        await sendAsMultipleTexts({
-          ctx,
-          messages: [streakMilestone],
-        });
+        sendAsMultipleTexts({ ctx, messages: [streakMilestone] }).catch(() => {});
         extraSent = true;
       }
     }
@@ -534,15 +510,15 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
     }
 
     if (!env.FREE_MODE && chargeChatCredit) {
-      await convex.spendCredits({
+      convex.spendCredits({
         telegramId,
         amount: CREDIT_COSTS.CHAT_MESSAGE,
         service: "venice",
         model: "llama-3.3-70b",
-      });
+      }).catch((error: unknown) => console.error("Chat credit spend error:", error));
     }
 
-    await convex.addMessage({ telegramId, role: "user", content: userMessageRaw });
+    convex.addMessage({ telegramId, role: "user", content: userMessageRaw }).catch((error: unknown) => console.error("Save user message error:", error));
 
     await sendAsMultipleTexts({
       ctx,
@@ -620,10 +596,7 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
 
     if (!extraSent && !suppressAttachmentHooks && shouldTriggerJealousy(retentionForPersistence)) {
       const jealousyLine = getJealousyTrigger();
-      await sendAsMultipleTexts({
-        ctx,
-        messages: [jealousyLine],
-      });
+      sendAsMultipleTexts({ ctx, messages: [jealousyLine] }).catch(() => {});
       retentionForPersistence = {
         ...retentionForPersistence,
         lastJealousyTrigger: Date.now(),
@@ -634,10 +607,7 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
 
     if (!extraSent && !suppressAttachmentHooks && shouldTriggerCliffhanger(retentionForPersistence)) {
       const cliffhangerLine = getCliffhanger();
-      await sendAsMultipleTexts({
-        ctx,
-        messages: [cliffhangerLine.replace(/\|\|\|/g, " ").trim()],
-      });
+      sendAsMultipleTexts({ ctx, messages: [cliffhangerLine.replace(/\|\|\|/g, " ").trim()] }).catch(() => {});
       retentionForPersistence = {
         ...retentionForPersistence,
         lastCliffhanger: Date.now(),
@@ -671,13 +641,6 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
 
     if (shouldGenerateImage && referenceForImage) {
       try {
-        if (Math.random() < 0.3) {
-          await sendAsMultipleTexts({
-            ctx,
-            messages: [randomItem(PRE_IMAGE_MESSAGES)],
-          });
-        }
-
         if (!env.FREE_MODE) {
           await convex.spendCredits({
             telegramId,
@@ -875,14 +838,15 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
       }
     }
 
-    await convex.addMessage({
+    // Fire-and-forget persistence — don't block the user
+    convex.addMessage({
       telegramId,
       role: "assistant",
       content: joinedReply,
       imageUrl,
-    });
+    }).catch((error: unknown) => console.error("Save assistant message error:", error));
 
-    await convex.upsertRetentionState({
+    convex.upsertRetentionState({
       telegramId,
       streak: retentionForPersistence.streak,
       lastChatDate: retentionForPersistence.lastChatDate,
@@ -890,7 +854,7 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
       stage: retentionForPersistence.stage,
       lastJealousyTrigger: retentionForPersistence.lastJealousyTrigger,
       lastCliffhanger: retentionForPersistence.lastCliffhanger,
-    });
+    }).catch((error: unknown) => console.error("Retention state save error:", error));
 
     const milestone = checkMilestones(
       telegramId,

@@ -153,7 +153,7 @@ export async function generateImage(
       console.warn(`Primary model ${modelId} failed, falling back to nano-banana-pro`);
       return await _generateWithModel(MODEL_IDS["nano-banana-pro"], safePrompt, {
         ...options,
-        safety_tolerance: "6",
+        safety_tolerance: "2",
       });
     }
     throw err;
@@ -171,6 +171,7 @@ export async function generateReferenceImage(
   const safePrompt = sanitizeImagePrompt(prompt);
 
   // Always use FLUX.2 Pro for reference images — quality matters most here
+  // Safety checker ON for reference images — these must always be SFW
   try {
     const result = await withRetry(
       () => fal.subscribe(MODEL_IDS["flux-2-pro"], {
@@ -179,8 +180,8 @@ export async function generateReferenceImage(
           num_images: 1,
           output_format: "jpeg",
           image_size: { width: 768, height: 1344 },
-          safety_tolerance: "5",
-          enable_safety_checker: false,
+          safety_tolerance: "2",
+          enable_safety_checker: true,
         } as any,
       }),
       "generate reference image (flux-2-pro)"
@@ -238,7 +239,8 @@ async function _generateWithModel(
       num_images: 1,
       output_format: "jpeg",
       image_size: { width: 720, height: 1280 },
-      safety_tolerance: "6",
+      safety_tolerance: "2",
+      enable_safety_checker: true,
       ...restOptions,
     };
   } else {
@@ -247,8 +249,8 @@ async function _generateWithModel(
       num_images: 1,
       output_format: "jpeg",
       image_size: { width: 720, height: 1280 },
-      safety_tolerance: "5",
-      enable_safety_checker: false,
+      safety_tolerance: "2",
+      enable_safety_checker: true,
       ...restOptions,
     };
   }

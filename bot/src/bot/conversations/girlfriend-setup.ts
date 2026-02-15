@@ -21,7 +21,7 @@ import type {
 } from "../../config/girlfriend-options.js";
 import { CREDIT_COSTS } from "../../config/pricing.js";
 import { convex } from "../../services/convex.js";
-import { generateImage, editImageSFW } from "../../services/fal.js";
+import { generateImage } from "../../services/fal.js";
 import { buildReferencePrompt } from "../../services/girlfriend-prompt.js";
 import { env } from "../../config/env.js";
 import {
@@ -670,11 +670,7 @@ export async function girlfriendSetup(conversation: SetupConversation, ctx: BotC
       }
 
       const generated = await generateImage(basePrompt);
-      const normalized = await editImageSFW(
-        generated.url,
-        "Casual phone selfie of this exact same person. Natural lighting, camera-roll look, candid framing."
-      );
-      imageUrl = normalized.url;
+      imageUrl = generated.url;
     } catch (err) {
       await ctx.reply(
         `Image generation failed. Run /remake to try again.\n(${err instanceof Error ? err.message : "unknown error"})`
@@ -756,11 +752,7 @@ export async function girlfriendSetup(conversation: SetupConversation, ctx: BotC
         ];
         const prompt = `${basePrompt}, ${variations[rerollCount % variations.length]}`;
         const generated = await generateImage(prompt);
-        const normalized = await editImageSFW(
-          generated.url,
-          "Casual phone selfie of this exact same person. Natural skin texture and camera-roll realism."
-        );
-        imageUrl = normalized.url;
+        imageUrl = generated.url;
 
         await ctx.replyWithPhoto(imageUrl, {
           caption: `${buildDraftSummary(draft)}\n\nUpdated image preview.`,
