@@ -10,6 +10,7 @@ import {
   isNanoModel,
   MODEL_IDS,
   getZImageNegativePrompt,
+  getZImageReferenceNegativePrompt,
   ZIMAGE_BASE_DEFAULTS,
   ZIMAGE_TURBO_DEFAULTS,
   FLUX_PRO_REFERENCE_DEFAULTS,
@@ -161,8 +162,10 @@ export async function generateImage(
 }
 
 /**
- * Generate the initial reference photo — uses FLUX.2 Pro for highest quality
+ * Generate the initial reference photo — uses Z-Image Base for highest quality
  * since this image becomes the foundation for all future selfies.
+ * Uses a LESS RESTRICTIVE negative prompt specifically for reference images
+ * to avoid blocking feminine features while still ensuring quality.
  */
 export async function generateReferenceImage(
   prompt: string,
@@ -170,12 +173,12 @@ export async function generateReferenceImage(
 ): Promise<FalImageResult> {
   const safePrompt = sanitizeImagePrompt(prompt);
 
-  // Use Z-Image Base for reference images as requested
+  // Use Z-Image Base for reference images with REFERENCE-specific negative prompt
   try {
     return await _generateWithModel(MODEL_IDS["z-image-base"], safePrompt, {
       num_inference_steps: 28,
       guidance_scale: 4.5, // Slightly higher for better instruction following
-      negative_prompt: negativePrompt || getZImageNegativePrompt(),
+      negative_prompt: negativePrompt || getZImageReferenceNegativePrompt(), // FIX: Use reference-specific negative prompt
     });
   } catch (err) {
     console.warn("Z-Image Base failed for reference, falling back to Flux 2 Pro");

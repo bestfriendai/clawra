@@ -126,6 +126,15 @@ export function getZImageNegativePrompt(): string {
   return `${ZIMAGE_NEGATIVE_BASE}, ${extras.join(", ")}`;
 }
 
+// Separate negative prompt for REFERENCE images only — less restrictive
+// Focuses on quality/realism issues, not NSFW prevention (reference is always SFW portrait)
+const ZIMAGE_REFERENCE_NEGATIVE =
+  "male, man, masculine, muscular man, male body, AI generated, plastic skin, smooth skin, airbrushed, illustration, cartoon, 3D render, uncanny valley, wax figure, mannequin, doll-like, overly symmetrical face, blurry, distorted hands, extra fingers, deformed, professional photoshoot, studio lighting setup, ring light catchlights, perfectly white teeth, plastic specular highlights, unnatural light bounce, symmetrical perfections, watermark, text overlay, logo, signature, overly posed, magazine cover, digital painting, CGI, concept art, anime, oversaturated, HDR look, overprocessed, perfect skin, poreless, beauty filter, stock photo";
+
+export function getZImageReferenceNegativePrompt(): string {
+  return ZIMAGE_REFERENCE_NEGATIVE;
+}
+
 // Z-Image Base: steps 1-28 (28=max quality), guidance_scale default 4.0
 // acceleration "none" disables distillation for highest quality output
 export const ZIMAGE_BASE_DEFAULTS = {
