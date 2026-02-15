@@ -393,18 +393,30 @@ export function buildReferencePrompt(profile: {
     },
   ]);
 
+  const outfitChoice = pickVariant([
+    "wearing a fitted t-shirt and jeans",
+    "wearing a cozy oversized hoodie and leggings",
+    "wearing a casual sundress",
+    "wearing a crop top and high-waisted jeans",
+    "wearing a tank top and shorts",
+    "wearing a sweater and skirt",
+    "wearing a blouse and jeans",
+    "wearing an off-shoulder top and jean shorts",
+  ]);
+
   return [
-    `A casual smartphone photo of a real ${profile.age}-year-old ${profile.race} woman with ${skinTone} skin and a ${bodyDesc} build.`,
+    `A casual smartphone selfie photo of a beautiful young ${profile.age}-year-old ${profile.race} female woman with ${skinTone} skin, feminine face, and a ${bodyDesc} feminine body.`,
+    `She is ${outfitChoice}, fully clothed.`,
     `She has ${profile.hairColor} ${profile.hairStyle} hair${profile.eyeColor ? ` and ${profile.eyeColor.toLowerCase()} eyes` : ""}, not styled for a photo, a few strands out of place and slightly frizzy.`,
     `${captureContext.scene}.`,
     `${captureContext.framing}.`,
     `${expression}.`,
     `${imperfectionSet}.`,
     `${captureContext.lighting}.`,
+    "Feminine soft facial features, feminine body shape. She is clearly a young woman, NOT a man, NOT masculine, NOT androgynous.",
     "Skin has visible pores on the nose and cheeks, uneven tone around the jaw, slight shine on the forehead from natural oil.",
     "The image has typical phone-camera problems: noticeable grain in the shadows, soft focus around the edges, slightly harsh contrast, and uneven white balance that runs warm.",
-    "Parts of the image are slightly overexposed or underexposed because the phone metered for her face and let everything else clip.",
-    "She is fully clothed in casual everyday clothes. NOT nude, NOT naked, NOT lingerie, NOT swimsuit, NOT revealing.",
+    "She is FULLY CLOTHED. NOT nude, NOT naked, NOT shirtless, NOT topless, NOT lingerie, NOT swimsuit. Clothes must be clearly visible.",
     "This looks like it came from someone's camera roll, not a photoshoot. Nothing about the composition is intentional or flattering.",
   ].join(" ");
 }
@@ -2345,13 +2357,13 @@ function getExpressionFromPersonality(personality: string): string {
 
 function getBodyDescription(bodyType: string): string {
   const lower = bodyType.toLowerCase();
-  if (lower.includes("petite")) return "Petite delicate frame, slim build, graceful proportions";
-  if (lower.includes("slim")) return "Slim elegant figure, slender build, lean proportions";
-  if (lower.includes("athletic")) return "Athletic toned physique, fit build, defined muscle tone visible";
-  if (lower.includes("curvy")) return "Naturally curvy hourglass figure, defined waist, full hips, round butt, full bust, thick thighs, feminine proportions";
-  if (lower.includes("thick")) return "Thick voluptuous build, full thighs, wide hips, substantial curves";
-  if (lower.includes("plus")) return "Plus size full-figured body, soft curves, wide hips, full bust";
-  return "Natural proportionate figure";
+  if (lower.includes("petite")) return "petite delicate feminine frame, slim build, small waist, graceful feminine proportions";
+  if (lower.includes("slim")) return "slim elegant feminine figure, slender build, lean feminine proportions, small waist";
+  if (lower.includes("athletic")) return "athletic toned feminine physique, fit female build, feminine muscle tone, slim waist, feminine curves";
+  if (lower.includes("curvy")) return "naturally curvy feminine hourglass figure, defined small waist, full hips, round butt, full bust, thick thighs, womanly proportions";
+  if (lower.includes("thick")) return "thick voluptuous feminine build, full thighs, wide hips, substantial feminine curves, womanly figure";
+  if (lower.includes("plus")) return "plus size full-figured feminine body, soft curves, wide hips, full bust, womanly proportions";
+  return "natural proportionate feminine figure";
 }
 
 function getBodyPreservationPrompt(bodyType: string): string {

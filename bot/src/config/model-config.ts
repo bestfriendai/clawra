@@ -102,7 +102,7 @@ export const QUALITY_CREDIT_COSTS = {
 } as const;
 
 const ZIMAGE_NEGATIVE_BASE =
-  "nude, naked, topless, nsfw, lingerie, underwear, bikini, cleavage, exposed skin, sexually suggestive, AI generated, plastic skin, smooth skin, airbrushed, illustration, cartoon, 3D render, uncanny valley, wax figure, mannequin, doll-like, overly symmetrical face, blurry, distorted hands, extra fingers, deformed, professional photoshoot, studio lighting setup, ring light catchlights";
+  "male, man, masculine, muscular man, male body, shirtless man, nude, naked, topless, shirtless, nsfw, lingerie, underwear, bikini, cleavage, exposed skin, exposed chest, bare chest, no shirt, sexually suggestive, AI generated, plastic skin, smooth skin, airbrushed, illustration, cartoon, 3D render, uncanny valley, wax figure, mannequin, doll-like, overly symmetrical face, blurry, distorted hands, extra fingers, deformed, professional photoshoot, studio lighting setup, ring light catchlights";
 
 const ZIMAGE_NEGATIVE_EXTRAS = [
   "watermark, text overlay, logo, signature, copyright",
