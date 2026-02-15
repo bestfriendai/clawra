@@ -790,11 +790,31 @@ export async function generateVoiceNote(
     (resolvedProfile?.emotion as MiniMaxEmotion | undefined) ??
     "neutral";
 
+  // Try Dia TTS first for natural conversational voice, fall back to MiniMax HD
+  try {
+    const diaResult = await withRetry(
+      () =>
+        fal.subscribe(MODEL_IDS["dia-tts"], {
+          input: {
+            text: `[S1] ${safePrompt}`,
+          },
+        }),
+      "generate voice note (dia-tts)"
+    );
+    const diaData = diaResult.data as { audio?: { url?: string }; url?: string; duration_ms?: number };
+    const diaUrl = diaData.audio?.url ?? diaData.url;
+    if (diaUrl) {
+      return { url: diaUrl, duration_ms: diaData.duration_ms || 0 };
+    }
+  } catch {
+    // Dia failed, fall through to MiniMax HD
+  }
+
   const result = await withRetry(
     () =>
-      fal.subscribe("fal-ai/minimax/speech-2.8-turbo", {
+      fal.subscribe("fal-ai/minimax/speech-02-hd", {
         input: {
-          prompt: safePrompt,
+          text: safePrompt,
           voice_setting: {
             voice_id: resolvedVoiceId,
             speed: resolvedSpeed,
@@ -804,15 +824,15 @@ export async function generateVoiceNote(
             english_normalization: true,
           },
           audio_setting: {
-            format: "mp3",
-            sample_rate: 32000,
-            bitrate: 128000,
-            channel: 1,
+            format: "mp3" as const,
+            sample_rate: "44100" as const,
+            bitrate: "256000" as const,
+            channel: "1" as const,
           },
           output_format: "url",
         },
       }),
-    "generate voice note"
+    "generate voice note (minimax-hd)"
   );
   const data = result.data as { audio?: { url: string }; duration_ms?: number };
   if (!data.audio?.url) throw new Error("No audio returned from MiniMax TTS");
