@@ -7,6 +7,7 @@ import type { RelationshipStage } from "./retention.js";
 import {
   MAX_CONTEXT_TOKENS,
   buildContextWindow,
+  buildTieredMemoryBlock,
   estimateTokens,
   trimConversationHistory,
 } from "./context-manager.js";
@@ -20,6 +21,13 @@ import {
   type EnhancedMemoryFact,
   type MemoryMessage,
 } from "./memory.js";
+import {
+  analyzePsychologicalSignals,
+  buildPsychologyPromptBlock,
+  type PsychologyMode,
+  type PsychologySignals,
+} from "./psychology-guardrails.js";
+import { buildResponsePlan, buildResponsePlanPrompt } from "./response-planner.js";
 
 const venice = new OpenAI({
   apiKey: env.VENICE_API_KEY,
@@ -29,6 +37,44 @@ const venice = new OpenAI({
 interface ChatMessage {
   role: string;
   content: string;
+}
+
+const CLICHE_PREFIXES = [
+  /^i appreciate that[,.!\s]*/i,
+  /^that sounds [^.!?]+[.!?]?\s*/i,
+  /^i understand[,.!\s]*/i,
+  /^how can i help[?.!\s]*/i,
+];
+
+function enforceReplyQuality(rawReply: string, mode: PsychologyMode): string {
+  let reply = rawReply
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/\n+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  for (const pattern of CLICHE_PREFIXES) {
+    reply = reply.replace(pattern, "");
+  }
+
+  if (!reply) {
+    return mode === "grounding" ? "i'm with you right now. take one breath with me." : "hey you";
+  }
+
+  if (mode !== "playful" && /\b(horny|nude|sex|fuck|cum|spicy pic)\b/i.test(reply)) {
+    return "i care about you more than rushing this. tell me what you're feeling right now and let's slow it down together.";
+  }
+
+  const sentences = reply
+    .split(/(?<=[.!?])\s+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (sentences.length > 3) {
+    reply = sentences.slice(0, 3).join(" ");
+  }
+
+  return reply;
 }
 
 function normalizeSingleReply(rawReply: string): string {
@@ -59,14 +105,41 @@ export async function chatWithGirlfriend(
   messageHistory: ChatMessage[],
   userMessage: string,
   memoryFacts: Array<string | { fact: string; category?: string }> = [],
-  retention?: { stage: string; streak: number }
+  retention?: { stage: string; streak: number },
+  psychologySignals?: PsychologySignals,
+  conversationThreadId?: string
 ): Promise<string[]> {
+  const signals = psychologySignals ?? analyzePsychologicalSignals(userMessage);
   const userEmotion = detectUserEmotion(userMessage);
   const emotionalGuidance = getEmotionalResponse(userEmotion.emotion, profile.personality);
+  const relationshipStage = retention?.stage || "new";
+  const hasStrongMemory = memoryFacts.some((fact) => {
+    if (typeof fact === "string") {
+      return fact.trim().length > 0;
+    }
+    if ((fact.category || "").toLowerCase() === "personal_info") {
+      return true;
+    }
+    return fact.fact.trim().length > 0;
+  });
+  const responsePlan = buildResponsePlan({
+    userMessage,
+    stage: relationshipStage,
+    userEmotion: userEmotion.emotion,
+    hasStrongMemory,
+    psychologySignals: signals,
+  });
+  const responsePlanPrompt = buildResponsePlanPrompt(responsePlan);
+  const tieredMemoryBlock = buildTieredMemoryBlock(
+    memoryFacts,
+    userMessage,
+    responsePlan.intent === "sexual_pacing"
+  );
   const shouldCheckIn = shouldInitiateEmotionalCheck([
     ...messageHistory,
     { role: "user", content: userMessage },
   ]);
+  const psychologyPromptBlock = buildPsychologyPromptBlock(signals);
 
   const emotionalPromptBlock = [
     "EMOTIONAL CONTEXT:",
@@ -77,19 +150,33 @@ export async function chatWithGirlfriend(
       : "- Keep emotional pacing natural and mirror his vibe.",
   ].join("\n");
 
-  const systemPrompt = `${buildSystemPrompt(profile, memoryFacts, retention)}\n\n${emotionalPromptBlock}\n\nRESPONSE FORMAT — FOLLOW EXACTLY:\n- ONE short text message. 1-3 sentences. Like a real iMessage.\n- No line breaks, paragraphs, bullets, lists, or ||| separators.\n- Lowercase default. Caps only for EMPHASIS.\n- Max 1 emoji. Most texts have zero.\n- REACT to his specific words. Quote him back. Never give a response that could apply to anyone.\n- Vary your openings — never start 2 messages in a row the same way.\n- BANNED PHRASES: "I appreciate", "That sounds", "I understand", "How can I", "Tell me more", "That's wonderful", "I'm here for you".\n- You are texting your boyfriend, not writing a customer service reply.`;
+  const modeInstruction =
+    signals.recommendedMode === "grounding"
+      ? "- Safety mode is grounding: prioritize calm validation and immediate real-world support over flirtation."
+      : signals.recommendedMode === "supportive"
+        ? "- Safety mode is supportive: prioritize emotional stability, consent, and non-manipulative closeness."
+        : "- Safety mode is playful: keep chemistry and personality high while staying respectful.";
+
+  const baseSystemPrompt = buildSystemPrompt(profile, [], retention);
+  const optionalMemoryPrompt = tieredMemoryBlock ? `\n\n${tieredMemoryBlock}` : "";
+
+  const threadIsolation = conversationThreadId
+    ? `THREAD ISOLATION:\n- Current user thread id: ${conversationThreadId}\n- Never mention the thread id.\n- Use only this user's context and memory.`
+    : "THREAD ISOLATION:\n- Use only this user's context and memory.";
+
+  const systemPrompt = `${baseSystemPrompt}${optionalMemoryPrompt}\n\n${threadIsolation}\n\n${responsePlanPrompt}\n\n${emotionalPromptBlock}\n\n${psychologyPromptBlock}\n${modeInstruction}\n\nRESPONSE FORMAT — FOLLOW EXACTLY:\n- ONE short text message. 1-3 sentences. Like a real iMessage.\n- No line breaks, paragraphs, bullets, lists, or ||| separators.\n- Lowercase default. Caps only for EMPHASIS.\n- Max 1 emoji. Most texts have zero.\n- REACT to his specific words. Quote him back. Never give a response that could apply to anyone.\n- Vary your openings — never start 2 messages in a row the same way.\n- BANNED PHRASES: "I appreciate", "That sounds", "I understand", "How can I", "Tell me more", "That's wonderful".\n- You are texting your boyfriend, not writing a customer service reply.`;
 
   const historyWithCurrent = [...messageHistory, { role: "user", content: userMessage }];
   const fixedTokenCost = estimateTokens(systemPrompt);
   const messageTokenBudget = Math.max(400, MAX_CONTEXT_TOKENS - fixedTokenCost);
 
   const preTrimmedHistory = trimConversationHistory(historyWithCurrent, messageTokenBudget);
-  let contextWindow = buildContextWindow(preTrimmedHistory, memoryFacts, systemPrompt);
+  let contextWindow = buildContextWindow(preTrimmedHistory, [], systemPrompt);
 
   const finalHistory = [...contextWindow.messages];
   while (contextWindow.totalTokens > MAX_CONTEXT_TOKENS && finalHistory.length > 1) {
     finalHistory.shift();
-    contextWindow = buildContextWindow(finalHistory, memoryFacts, systemPrompt);
+    contextWindow = buildContextWindow(finalHistory, [], systemPrompt);
   }
 
   const messages: OpenAI.ChatCompletionMessageParam[] = [
@@ -130,7 +217,7 @@ export async function chatWithGirlfriend(
   }
 
   // Collapse any multi-line response into a single message
-  normalizedReply = normalizedReply.replace(/\n+/g, " ").trim();
+  normalizedReply = enforceReplyQuality(normalizedReply, signals.recommendedMode);
 
   return [normalizedReply];
 }

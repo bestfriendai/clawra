@@ -91,18 +91,16 @@ export async function handleChallenge(ctx: BotContext): Promise<void> {
     if (master.awarded) newBadges.push("🏆 Challenge Master");
   }
 
-  setTimeout(async () => {
-    try {
-      const badgeLine =
-        newBadges.length > 0
-          ? `\nnew badge${newBadges.length > 1 ? "s" : ""}: ${newBadges.join(", ")}`
-          : "";
-      await sendAsMultipleTexts({
-        ctx,
-        messages: [
-          `omg you did it! 🎉 +${challenge.rewardCredits} credits for you babe 💕${badgeLine}`,
-        ],
-      });
-    } catch {}
-  }, 2000);
+  try {
+    const badgeLine =
+      newBadges.length > 0
+        ? `\nnew badge${newBadges.length > 1 ? "s" : ""}: ${newBadges.join(", ")}`
+        : "";
+    await sendAsMultipleTexts({
+      ctx,
+      messages: [
+        `omg you did it! 🎉 +${challenge.rewardCredits} credits for you babe 💕${badgeLine}`,
+      ],
+    });
+  } catch {}
 }

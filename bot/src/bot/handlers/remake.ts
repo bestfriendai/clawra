@@ -2,6 +2,7 @@ import type { BotContext } from "../../types/context.js";
 import { CREDIT_COSTS } from "../../config/pricing.js";
 import { convex } from "../../services/convex.js";
 import { env } from "../../config/env.js";
+import { resetConversationThreadId } from "../../services/conversation-thread.js";
 
 export async function handleRemake(ctx: BotContext) {
   const telegramId = ctx.from!.id;
@@ -17,6 +18,7 @@ export async function handleRemake(ctx: BotContext) {
     }
   }
 
+  await resetConversationThreadId(telegramId).catch(() => {});
   await ctx.reply("Let's create a new girlfriend! Your current one will be replaced.");
   await ctx.conversation.enter("girlfriendSetup");
 }

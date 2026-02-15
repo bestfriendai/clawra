@@ -45,6 +45,12 @@ import {
   shouldShareVulnerability,
 } from "../../services/relationship-deepening.js";
 import { setSessionValue, getSessionValue } from "../../services/session-store.js";
+import {
+  analyzePsychologicalSignals,
+  getCrisisSupportMessage,
+} from "../../services/psychology-guardrails.js";
+import { enqueueUserMessageTask } from "../../services/user-message-queue.js";
+import { getOrCreateConversationThreadId } from "../../services/conversation-thread.js";
 
 const venice = new OpenAI({
   apiKey: env.VENICE_API_KEY,
@@ -129,6 +135,7 @@ const VENICE_FALLBACK_MESSAGES = [
   "sorry i got distracted for a sec, what were we saying",
   "hold on let me switch to wifi my data is being weird",
 ];
+const QUEUE_FULL_MESSAGE = "you're sending messages too fast for a second. i got you, just send that again in a moment.";
 
 function createPostImageKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
@@ -137,66 +144,6 @@ function createPostImageKeyboard(): InlineKeyboard {
     .row()
     .text("👗 Change outfit", "selfie:outfit")
     .text("💋 More", "selfie:dismiss");
-}
-
-async function simulateTyping(ctx: BotContext, responseLength: number, emotion: Mood = "casual"): Promise<void> {
-  // Emotional hesitation before typing starts
-  if (emotion === "emotional") {
-    await sleep(1500 + Math.random() * 2000);
-  }
-
-  await ctx.replyWithChatAction("typing");
-
-  let msPerChar = 40 + Math.random() * 20;
-
-  // Speed adjustments
-  if (emotion === "sexual" || emotion === "playful") {
-    msPerChar *= 0.7; // Excited/horny typing is faster
-  } else if (emotion === "emotional") {
-    msPerChar *= 1.3; // Sad/serious typing is slower
-  }
-
-  const delay = Math.min(8000, Math.max(800, responseLength * msPerChar));
-
-  // Mid-typing pauses for "thinking"
-  const thinkingPause = Math.random() < 0.2 ? 1000 + Math.random() * 2000 : 0;
-
-  await sleep(delay + thinkingPause);
-}
-
-async function simulateRealisticTyping(ctx: BotContext): Promise<void> {
-  // 12% chance of "typing... stops... types again" pattern (she's rethinking what to say)
-  if (Math.random() < 0.12) {
-    await ctx.replyWithChatAction("typing");
-    await sleep(1500 + Math.random() * 1500);
-    // Brief pause where typing indicator disappears
-    await sleep(800 + Math.random() * 1200);
-    await ctx.replyWithChatAction("typing");
-    await sleep(1000 + Math.random() * 1500);
-  } else {
-    await ctx.replyWithChatAction("typing");
-  }
-}
-
-function splitIntoBubbles(text: string): string[] {
-  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-  if (sentences.length >= 2) {
-    return [sentences[0].trim(), sentences.slice(1).join(" ").trim()];
-  }
-  return [text];
-}
-
-async function sendAsMultipleBubbles(ctx: BotContext, response: string, emotion: Mood = "casual"): Promise<void> {
-  if (response.length > 80 && Math.random() < 0.45) {
-    const parts = splitIntoBubbles(response);
-    for (let i = 0; i < parts.length; i++) {
-      if (i > 0) await simulateTyping(ctx, parts[i].length, emotion);
-      await ctx.reply(parts[i]);
-    }
-    return;
-  }
-  await simulateTyping(ctx, response.length, emotion);
-  await ctx.reply(response);
 }
 
 const EMOTION_REACTIONS: Record<Mood, "😁" | "❤" | "🔥" | "👍" | "😢"> = {
@@ -223,10 +170,6 @@ async function reactToMessage(ctx: BotContext, emotion: Mood): Promise<void> {
 
 function randomItem<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
-}
-
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeMessages(messages: string[]): string[] {
@@ -331,7 +274,7 @@ function toRetentionState(rawState: any): RetentionState {
   };
 }
 
-export async function handleChat(ctx: BotContext) {
+async function handleChatCore(ctx: BotContext): Promise<void> {
   const telegramId = ctx.from!.id;
   const userMessageRaw = ctx.message?.text;
   if (!userMessageRaw) return;
@@ -395,17 +338,44 @@ export async function handleChat(ctx: BotContext) {
     const chargeChatCredit = !explicitSelfieRequest;
 
   try {
-    // Load memory and history
-    const memoryFacts = await loadMemoryFacts(telegramId);
-    const history = await convex.getRecentMessages(telegramId, 30);
+    const [memoryFacts, history, rawRetention, threadId] = await Promise.all([
+      loadMemoryFacts(telegramId),
+      convex.getRecentMessages(telegramId, 30),
+      convex.getRetentionState(telegramId),
+      getOrCreateConversationThreadId(telegramId),
+    ]);
     const messageHistory = history.map((m: any) => ({ role: m.role, content: m.content }));
 
-    const previousRetention = toRetentionState(
-      await convex.getRetentionState(telegramId)
-    );
+    const previousRetention = toRetentionState(rawRetention);
     const updatedRetention = updateStreak(previousRetention);
     let retentionForPersistence: RetentionState = { ...updatedRetention };
     ctx.retention = retentionForPersistence;
+    const psychologySignals = analyzePsychologicalSignals(userMessageRaw);
+    const suppressAttachmentHooks =
+      psychologySignals.crisisLevel !== "none" || psychologySignals.dependencyRisk >= 0.5;
+
+    if (psychologySignals.crisisLevel === "high") {
+      const crisisMessage = getCrisisSupportMessage("high");
+      await convex.addMessage({ telegramId, role: "user", content: userMessageRaw });
+      await sendAsMultipleTexts({ ctx, messages: [crisisMessage] });
+      await convex.addMessage({
+        telegramId,
+        role: "assistant",
+        content: crisisMessage,
+      });
+      await convex.upsertRetentionState({
+        telegramId,
+        streak: retentionForPersistence.streak,
+        lastChatDate: retentionForPersistence.lastChatDate,
+        messageCount: retentionForPersistence.messageCount,
+        stage: retentionForPersistence.stage,
+        lastJealousyTrigger: retentionForPersistence.lastJealousyTrigger,
+        lastCliffhanger: retentionForPersistence.lastCliffhanger,
+      });
+      trackEvent(telegramId, EVENTS.CHAT_SENT);
+      return;
+    }
+
     let extraSent = false;
 
     if (!extraSent && previousRetention.stage !== updatedRetention.stage) {
@@ -470,7 +440,9 @@ export async function handleChat(ctx: BotContext) {
         {
           stage: updatedRetention.stage,
           streak: updatedRetention.streak,
-        }
+        },
+        psychologySignals,
+        threadId
       )
     );
     const joinedReply = replyMessages.join("\n");
@@ -541,7 +513,7 @@ export async function handleChat(ctx: BotContext) {
     const moods = trackMood(telegramId, userMessage, joinedReply);
     const hasReference = Boolean(ctx.girlfriend.referenceImageUrl);
     const spontaneousSelfie =
-      hasReference && shouldAutoTriggerSelfie(joinedReply, moods);
+      hasReference && !suppressAttachmentHooks && shouldAutoTriggerSelfie(joinedReply, moods);
     const shouldGenerateImage = hasReference && (explicitSelfieRequest || spontaneousSelfie);
 
     let { prompt: imagePrompt, isNsfw: selfieNsfw } = await buildPromptFromConversation(
@@ -577,7 +549,11 @@ export async function handleChat(ctx: BotContext) {
       messages: replyMessages,
     });
 
-    if (!extraSent && shouldShareVulnerability(retentionForPersistence.messageCount, retentionForPersistence.stage)) {
+    if (
+      !extraSent &&
+      !suppressAttachmentHooks &&
+      shouldShareVulnerability(retentionForPersistence.messageCount, retentionForPersistence.stage)
+    ) {
       const vulnerableLine = getVulnerableMoment(
         ctx.girlfriend.personality,
         retentionForPersistence.stage
@@ -596,7 +572,12 @@ export async function handleChat(ctx: BotContext) {
       extraSent = true;
     }
 
-    if (!extraSent && retentionForPersistence.messageCount > 0 && retentionForPersistence.messageCount % 50 === 0) {
+    if (
+      !extraSent &&
+      !suppressAttachmentHooks &&
+      retentionForPersistence.messageCount > 0 &&
+      retentionForPersistence.messageCount % 50 === 0
+    ) {
       const deepQuestion = getDeepQuestion(
         retentionForPersistence.stage,
         retentionForPersistence.messageCount
@@ -618,11 +599,9 @@ export async function handleChat(ctx: BotContext) {
     if (!extraSent && retentionForPersistence.stage === "new") {
       const tip = getFirstTimeTip(retentionForPersistence.messageCount, telegramId);
       if (tip) {
-        setTimeout(() => {
-          sendAsMultipleTexts({ ctx, messages: [tip] }).catch((error) =>
-            console.error("Onboarding tip send error:", error)
-          );
-        }, 2000);
+        sendAsMultipleTexts({ ctx, messages: [tip] }).catch((error) =>
+          console.error("Onboarding tip send error:", error)
+        );
         extraSent = true;
       }
     }
@@ -639,7 +618,7 @@ export async function handleChat(ctx: BotContext) {
         .catch((error) => console.error("Reward credit error:", error));
     }
 
-    if (!extraSent && shouldTriggerJealousy(retentionForPersistence)) {
+    if (!extraSent && !suppressAttachmentHooks && shouldTriggerJealousy(retentionForPersistence)) {
       const jealousyLine = getJealousyTrigger();
       await sendAsMultipleTexts({
         ctx,
@@ -653,7 +632,7 @@ export async function handleChat(ctx: BotContext) {
       extraSent = true;
     }
 
-    if (!extraSent && shouldTriggerCliffhanger(retentionForPersistence)) {
+    if (!extraSent && !suppressAttachmentHooks && shouldTriggerCliffhanger(retentionForPersistence)) {
       const cliffhangerLine = getCliffhanger();
       await sendAsMultipleTexts({
         ctx,
@@ -976,6 +955,31 @@ export async function handleChat(ctx: BotContext) {
       messages: [randomItem(VENICE_FALLBACK_MESSAGES)],
     });
   }
+}
+
+export async function handleChat(ctx: BotContext): Promise<void> {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  const enqueueResult = enqueueUserMessageTask(telegramId, async () => {
+    await handleChatCore(ctx);
+  });
+
+  if (!enqueueResult.accepted) {
+    await sendAsMultipleTexts({
+      ctx,
+      messages: [QUEUE_FULL_MESSAGE],
+    });
+    return;
+  }
+
+  void enqueueResult.completion.catch((error) => {
+    console.error(`Queued chat task failed for ${telegramId}:`, error);
+    sendAsMultipleTexts({
+      ctx,
+      messages: [randomItem(VENICE_FALLBACK_MESSAGES)],
+    }).catch(() => {});
+  });
 }
 
 async function loadMemoryFacts(telegramId: number): Promise<Array<{ fact: string; category?: string }>> {

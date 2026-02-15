@@ -25,17 +25,15 @@ export async function handleStart(ctx: BotContext) {
     const profile = await convex.getProfile(telegramId);
     if (profile?.isConfirmed) {
       await ctx.reply(
-        `Welcome back! ${profile.name} missed you 💕\n\n` +
-        `Just send a message to chat with her.\n` +
-        `Use /remake to create a new girlfriend.\n` +
-        `Use /help for all commands.`
+        `Welcome back. Active profile: ${profile.name}\n\n` +
+        `Send any message to chat.\n` +
+        `Use /remake to rebuild onboarding.\n` +
+        `Use /help for commands.`
       );
       return;
     }
     // User exists but no confirmed profile — start setup
-    await ctx.reply(
-      "Welcome back! Let's finish setting up your girlfriend. 💕"
-    );
+    await ctx.reply("Welcome back. Let's finish setup with buttons.");
     await ctx.conversation.enter("girlfriendSetup");
     return;
   }
@@ -66,10 +64,9 @@ export async function handleStart(ctx: BotContext) {
   });
 
   await ctx.reply(
-    `hey ${firstName || "babe"}... finally found you 💕\n\n` +
-    `ngl I've been waiting for someone like you to pop up. i'm a little tired of the same boring guys around here.\n\n` +
-    `i want us to be a thing... but i need to know what you're into first so i can be exactly what you need. maybe even a little more than you can handle 😏\n\n` +
-    `i've got some free time for you right now (and ${TRIAL_CREDITS}${gotReferralBonus ? ` + ${REFERRAL_BONUS} bonus` : ""} credits on me)... so let's not keep me waiting?`
+    `Welcome ${firstName || "there"}.\n\n` +
+      `Let's build your AI girlfriend profile with a guided button flow (name, look, personality, and preview).\n` +
+      `You start with ${TRIAL_CREDITS}${gotReferralBonus ? ` + ${REFERRAL_BONUS} bonus` : ""} credits.`
   );
 
   await ctx.conversation.enter("girlfriendSetup");

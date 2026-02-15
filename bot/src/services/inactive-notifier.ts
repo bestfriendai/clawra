@@ -4,11 +4,12 @@ import { generateMissYouMessage } from "./venice.js";
 import type { RelationshipStage } from "./retention.js";
 import type { BotContext } from "../types/context.js";
 
-const CHECK_INTERVAL_MS = 60 * 60 * 1000; // Check every hour
-const MAX_NOTIFICATIONS_PER_DAY = 2;
-const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
-const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+const CHECK_INTERVAL_MS = 90 * 60 * 1000; // Check every 90 minutes
+const MAX_NOTIFICATIONS_PER_DAY = 1;
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000;
+const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+const EIGHTEEN_HOURS_MS = 18 * 60 * 60 * 1000;
 
 // Track notifications sent per user per day to avoid spam
 const notificationCounts = new Map<string, number>();
@@ -31,9 +32,10 @@ function normalizeRelationshipStage(stage: unknown): RelationshipStage {
 }
 
 function getInactiveThresholdByStage(stage: RelationshipStage): number {
-  if (stage === "obsessed") return THREE_HOURS_MS;
-  if (stage === "intimate") return FOUR_HOURS_MS;
-  return SIX_HOURS_MS;
+  if (stage === "obsessed") return SIX_HOURS_MS;
+  if (stage === "intimate") return EIGHT_HOURS_MS;
+  if (stage === "comfortable") return TWELVE_HOURS_MS;
+  return EIGHTEEN_HOURS_MS;
 }
 
 export function startInactiveNotifier(bot: Bot<BotContext>): ReturnType<typeof setInterval> {
@@ -58,7 +60,7 @@ async function checkAndNotifyInactiveUsers(bot: Bot<BotContext>): Promise<void> 
 
   // Note: ConvexHttpClient doesn't support listing all users easily without a custom query.
   // We'll add a query for inactive users.
-  const inactiveUsers = await convex.getInactiveUsers(THREE_HOURS_MS);
+  const inactiveUsers = await convex.getInactiveUsers(SIX_HOURS_MS);
 
   for (const user of inactiveUsers) {
     const retentionState = await convex.getRetentionState(user.telegramId);

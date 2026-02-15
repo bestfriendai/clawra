@@ -254,6 +254,7 @@ async function start() {
 
     await bot.api.setWebhook(`${env.WEBHOOK_URL}${secretPath}`, {
       secret_token: env.TELEGRAM_WEBHOOK_SECRET,
+      max_connections: 100,
     });
 
     app.listen(env.PORT, () => {

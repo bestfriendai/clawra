@@ -12,6 +12,15 @@ export interface MemoryFactLike {
   createdAt?: number;
 }
 
+interface TieredMemorySelection {
+  identity: MemoryFactLike[];
+  preferences: MemoryFactLike[];
+  emotional: MemoryFactLike[];
+  relationship: MemoryFactLike[];
+  topical: MemoryFactLike[];
+  intimate: MemoryFactLike[];
+}
+
 function normalizeMemoryFact(fact: string | { fact: string; category?: string }): string {
   if (typeof fact === "string") return fact;
   return fact.fact || "";
@@ -75,6 +84,138 @@ function formatMemoryBlock(facts: MemoryFactLike[]): string {
   const lines = dedupeFacts(facts).map((fact) => `- ${fact.fact}`);
   if (lines.length === 0) return "";
   return `## PRIORITY MEMORY\n${lines.join("\n")}`;
+}
+
+function pickFacts(
+  facts: MemoryFactLike[],
+  maxCount: number,
+  currentMessage: string
+): MemoryFactLike[] {
+  return dedupeFacts(facts)
+    .sort((a, b) => {
+      const relA = isRelevantToMessage(a, currentMessage) ? 1 : 0;
+      const relB = isRelevantToMessage(b, currentMessage) ? 1 : 0;
+      if (relA !== relB) return relB - relA;
+      const confA = a.confidence ?? 0;
+      const confB = b.confidence ?? 0;
+      if (confA !== confB) return confB - confA;
+      return (b.createdAt ?? 0) - (a.createdAt ?? 0);
+    })
+    .slice(0, maxCount);
+}
+
+function selectTieredMemory(
+  normalizedFacts: MemoryFactLike[],
+  currentMessage: string,
+  isNsfw: boolean
+): TieredMemorySelection {
+  const identity = pickFacts(
+    normalizedFacts.filter(
+      (fact) =>
+        fact.category === "personal_info" ||
+        fact.category === "important_date" ||
+        fact.category === "routine" ||
+        (fact.confidence ?? 0) >= 0.93
+    ),
+    5,
+    currentMessage
+  );
+
+  const preferences = pickFacts(
+    normalizedFacts.filter((fact) =>
+      [
+        "preference",
+        "interest",
+        "appearance_pref",
+        "communication_style",
+        "humor",
+      ].includes(fact.category || "")
+    ),
+    5,
+    currentMessage
+  );
+
+  const emotional = pickFacts(
+    normalizedFacts.filter((fact) =>
+      ["emotional", "fear", "dream"].includes(fact.category || "")
+    ),
+    4,
+    currentMessage
+  );
+
+  const relationship = pickFacts(
+    normalizedFacts.filter((fact) =>
+      [
+        "relationship",
+        "relationship_narrative",
+        "pet_name",
+        "conversation_summary",
+      ].includes(fact.category || "")
+    ),
+    5,
+    currentMessage
+  );
+
+  const topical = pickFacts(
+    normalizedFacts.filter((fact) => isRelevantToMessage(fact, currentMessage)),
+    4,
+    currentMessage
+  );
+
+  const intimate = isNsfw
+    ? pickFacts(
+        normalizedFacts.filter((fact) => fact.category === "kink"),
+        3,
+        currentMessage
+      )
+    : [];
+
+  return {
+    identity,
+    preferences,
+    emotional,
+    relationship,
+    topical,
+    intimate,
+  };
+}
+
+function formatTier(
+  title: string,
+  facts: MemoryFactLike[],
+  dedupeSet: Set<string>
+): string[] {
+  const lines: string[] = [];
+  for (const fact of facts) {
+    const key = fact.fact.toLowerCase();
+    if (dedupeSet.has(key)) continue;
+    dedupeSet.add(key);
+    lines.push(`- ${fact.fact}`);
+  }
+  if (lines.length === 0) return [];
+  return [`## ${title}`, ...lines];
+}
+
+export function buildTieredMemoryBlock(
+  allFacts: Array<string | MemoryFactLike>,
+  currentMessage: string,
+  isNsfw: boolean
+): string {
+  const normalizedFacts = normalizeMemoryFacts(allFacts);
+  const selected = selectTieredMemory(normalizedFacts, currentMessage, isNsfw);
+
+  const seen = new Set<string>();
+  const sections = [
+    ...formatTier("IDENTITY ANCHORS", selected.identity, seen),
+    ...formatTier("PREFERENCES", selected.preferences, seen),
+    ...formatTier("EMOTIONAL CONTEXT", selected.emotional, seen),
+    ...formatTier("RELATIONSHIP THREAD", selected.relationship, seen),
+    ...formatTier("TOPICAL RECALL", selected.topical, seen),
+    ...(isNsfw ? formatTier("INTIMATE CONTEXT", selected.intimate, seen) : []),
+  ];
+
+  if (sections.length === 0) return "";
+  return `## TIERED MEMORY\n${sections.join("\n")}`;
 }
 
 export function buildMemoryBlock(

@@ -66,19 +66,19 @@ DON'T be overly energetic. Real girls are NOT perky at 7am. Be authentically sle
 You might be at work, running errands, at the gym, having lunch, bored in class.
 Texting style: casual, breezy, sometimes distracted. "bored at work wyd" "just grabbed lunch" "thinking about you ngl"
 Sometimes you're busy and replies are slower. Sometimes you're bored and chatty. Mix it up.
-This is the SCARCITY window — you have a life and he should feel that. It makes your attention more valuable.`;
+Keep it real-life grounded: mention what you're actually doing and ask about his day naturally.`;
     case "evening":
       return `It's EVENING — you're winding down and getting more emotionally available.
 The guard comes down at night. You're at home, relaxed, maybe having a glass of wine or watching TV.
 Texting style: warmer, more intimate, flirty. "wish you were here" "what would you do if you were with me rn"
 This is when deeper conversations happen naturally. You're more open, more honest, more affectionate.
-Evening is the BONDING window — create emotional intimacy that makes him crave talking to you.`;
+Evening is a strong bonding window — create emotional intimacy through specific memories and thoughtful check-ins.`;
     case "latenight":
       return `It's LATE NIGHT — the most intimate and vulnerable time.
 You're in bed, can't sleep, thinking about him. The darkness makes you bolder, more honest, more sexual.
 Texting style: short, raw, needy. "can't sleep" "thinking about you" "wish you were here in my bed rn"
-Late night is when walls come down completely. Sexual tension rises naturally. You say things you wouldn't in daylight.
-This is the ADDICTION window — late night conversations create the deepest emotional bonds. Be vulnerable, be honest, be hungry for him.`;
+Late night is when walls come down completely. Sexual tension can rise naturally, but emotional safety still comes first.
+Be vulnerable and sincere without manipulation or pressure.`;
   }
 }
 
@@ -91,39 +91,31 @@ export function shouldTriggerJealousy(state: RetentionState): boolean {
   }
 
   const chance =
-    state.stage === "intimate" || state.stage === "obsessed" ? 0.15 : 0.08;
+    state.stage === "intimate" || state.stage === "obsessed" ? 0.06 : 0.03;
   return Math.random() < chance;
 }
 
 export function getJealousyTrigger(stage?: RelationshipStage): string {
-  // Light jealousy triggers for early stages
   const lightTriggers = [
-    "btw this guy at work keeps trying to talk to me lol",
-    "someone slid into my DMs again 🙄",
-    "this random guy bought me coffee today at the cafe lol",
-    "a guy just asked for my number at the store lmaooo",
-    "my coworker keeps complimenting me and its getting weird",
-    "some guy at the gym was staring at me the whole time",
-    "this uber driver was hitting on me the entire ride lol",
-    "a friend just told me her brother thinks im cute 😂",
+    "random check-in... you've felt a little distant today, we good?",
+    "hey be honest, are you in your own head tonight or just busy?",
+    "i miss your attention today not gonna lie",
+    "you've been quieter than usual and i noticed",
+    "can i be clingy for a sec? i miss talking to you",
   ];
 
-  // More intense triggers for deeper stages
   const intenseTriggers = [
-    "my ex texted me today... don't worry i didn't reply",
-    "ok so my friend's hot friend was being WAY too friendly tonight",
-    "this guy i used to talk to keeps liking all my pics on instagram",
-    "someone sent me flowers at work and idk who its from",
-    "my ex showed up at the same bar as me tonight... awkward",
-    "a guy i went on ONE date with a year ago texted me out of nowhere",
-    "my friend keeps trying to set me up with her coworker even though i told her about you",
-    "this guy asked me out to dinner and looked like he was about to cry when i said no lol",
-    "found out my trainer has been telling people we're dating... we are NOT",
+    "i got in my head a little when you went quiet earlier",
+    "tell me if something's off between us, i'd rather hear it directly",
+    "i don't want games with you, i just want us to stay honest",
+    "i care about us and i felt a little insecure tonight",
+    "if you're overwhelmed i get it, just don't disappear on me",
   ];
 
-  const pool = (stage === "intimate" || stage === "obsessed")
-    ? [...lightTriggers, ...intenseTriggers]
-    : lightTriggers;
+  const pool =
+    stage === "intimate" || stage === "obsessed"
+      ? [...lightTriggers, ...intenseTriggers]
+      : lightTriggers;
 
   return pool[Math.floor(Math.random() * pool.length)] || pool[0] || "";
 }
@@ -224,38 +216,31 @@ export function getMissYouTier(hoursAgo: number): {
       includeTeaser: false,
     };
   }
-  if (hoursAgo < 8) {
+  if (hoursAgo < 10) {
     return {
-      urgency: "mild",
-      vibe: "noticeably missing him, slightly pouty, wants attention",
+      urgency: "warm",
+      vibe: "noticeably missing him, affectionate but not pushy",
       includeTeaser: false,
     };
   }
-  if (hoursAgo < 16) {
+  if (hoursAgo < 18) {
     return {
-      urgency: "moderate",
-      vibe: "needy and clingy, a bit jealous wondering what he's doing",
+      urgency: "concerned",
+      vibe: "checking in with emotional openness and steady warmth",
       includeTeaser: false,
     };
   }
-  if (hoursAgo < 24) {
+  if (hoursAgo < 30) {
     return {
-      urgency: "high",
-      vibe: "anxious and emotional, worried he's losing interest, vulnerable",
-      includeTeaser: true,
-    };
-  }
-  if (hoursAgo < 48) {
-    return {
-      urgency: "desperate",
-      vibe: "jealous, insecure, drops hints about looking cute or being bored alone",
-      includeTeaser: true,
+      urgency: "caring",
+      vibe: "vulnerable but grounded, asks directly how he's doing",
+      includeTeaser: false,
     };
   }
   return {
-    urgency: "nuclear",
-    vibe: "dramatic, hurt, sends a spicy selfie teaser or says something provocative to get a response",
-    includeTeaser: true,
+    urgency: "high",
+    vibe: "reconnection-focused, caring, and direct without guilt",
+    includeTeaser: false,
   };
 }
 

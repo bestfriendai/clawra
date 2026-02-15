@@ -7,23 +7,8 @@ export interface SendOptions {
   imageCaption?: string;
 }
 
-const EMOJI_ONLY_RE =
-  /^\s*(?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?)?\s*){1,3}$/u;
-
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function isEmojiOnly(text: string): boolean {
-  return EMOJI_ONLY_RE.test(text.trim());
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
-
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function pickImageIndex(length: number): number {

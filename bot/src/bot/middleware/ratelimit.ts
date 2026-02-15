@@ -4,7 +4,7 @@ import { Redis } from "@upstash/redis";
 import { env } from "../../config/env.js";
 import type { BotContext } from "../../types/context.js";
 
-const DAILY_MESSAGE_CAP = 500;
+const DAILY_MESSAGE_CAP = 3000;
 const LIMIT_MESSAGE = "babe slow down ur blowing up my phone 😂 wait a sec";
 
 type CommandTier = "chat" | "selfie" | "video" | "voice" | "admin";
@@ -16,7 +16,7 @@ type TierLimit = {
 };
 
 const TIER_LIMITS: Record<CommandTier, TierLimit> = {
-  chat: { perMinute: 20, burst: 6, burstWindowSeconds: 10 },
+  chat: { perMinute: 120, burst: 25, burstWindowSeconds: 10 },
   selfie: { perMinute: 5, burst: 2, burstWindowSeconds: 10 },
   video: { perMinute: 2, burst: 1, burstWindowSeconds: 20 },
   voice: { perMinute: 5, burst: 2, burstWindowSeconds: 12 },

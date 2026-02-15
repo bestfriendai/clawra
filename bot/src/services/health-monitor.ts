@@ -1,5 +1,6 @@
 import { env } from "../config/env.js";
 import { convex } from "./convex.js";
+import { getQueueMetrics } from "./user-message-queue.js";
 
 type OverallHealthStatus = "healthy" | "degraded" | "unhealthy";
 type ServiceStatus = "up" | "down";
@@ -26,6 +27,10 @@ export interface HealthStatus {
     activeUsers24h: number;
     messagesLastHour: number;
     errorsLastHour: number;
+    queueActiveUsers: number;
+    queuePendingMessages: number;
+    queueRunningTasks: number;
+    queueWaitingForSlot: number;
   };
 }
 
@@ -42,6 +47,12 @@ export interface SystemMetrics {
   throughput: {
     messagesLastHour: number;
     messagesPerMinute: number;
+  };
+  queue: {
+    activeUsers: number;
+    pendingMessages: number;
+    runningTasks: number;
+    waitingForSlot: number;
   };
   errors: {
     lastHour: number;
@@ -235,6 +246,7 @@ export async function getSystemMetrics(): Promise<SystemMetrics> {
 
   const { activeUsers24h, messagesLastHour } = await getActivityMetrics();
   const errorsLastHour = errorTimestamps.length;
+  const queueMetrics = getQueueMetrics();
 
   return {
     memory: {
@@ -249,6 +261,12 @@ export async function getSystemMetrics(): Promise<SystemMetrics> {
     throughput: {
       messagesLastHour,
       messagesPerMinute: Number((messagesLastHour / 60).toFixed(2)),
+    },
+    queue: {
+      activeUsers: queueMetrics.activeUsers,
+      pendingMessages: queueMetrics.totalPending,
+      runningTasks: queueMetrics.totalRunning,
+      waitingForSlot: queueMetrics.waitingForSlot,
     },
     errors: {
       lastHour: errorsLastHour,
@@ -284,6 +302,10 @@ export async function getHealthStatus(): Promise<HealthStatus> {
       activeUsers24h: systemMetrics.activeUsers24h,
       messagesLastHour: systemMetrics.throughput.messagesLastHour,
       errorsLastHour: systemMetrics.errors.lastHour,
+      queueActiveUsers: systemMetrics.queue.activeUsers,
+      queuePendingMessages: systemMetrics.queue.pendingMessages,
+      queueRunningTasks: systemMetrics.queue.runningTasks,
+      queueWaitingForSlot: systemMetrics.queue.waitingForSlot,
     },
   };
 }
