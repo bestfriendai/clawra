@@ -20,9 +20,9 @@ import {
 } from "./smart-timing.js";
 import { setSessionValue } from "./session-store.js";
 
-const CHECK_INTERVAL_MS = 45 * 60 * 1000; // Check every 45 mins instead of 60
-const MAX_NOTIFICATIONS_PER_DAY = 4; // Slightly more to maintain presence
-const AFTERNOON_SEND_CHANCE = 0.45;
+const CHECK_INTERVAL_MS = 90 * 60 * 1000; // Check every 90 mins — stop spamming
+const MAX_NOTIFICATIONS_PER_DAY = 2; // Text only, keep it chill
+const AFTERNOON_SEND_CHANCE = 0.25;
 
 type ProactiveMessageType = "morning" | "goodnight" | "thinking_of_you";
 
@@ -286,18 +286,8 @@ async function sendProactiveMessages(
     const relationship = await getRelationshipContextForUser(user.telegramId);
 
     try {
-      const sentPhoto = await trySendProactivePhoto(
-        bot,
-        user.telegramId,
-        profile,
-        relationship.stage,
-        preferences.proactivePhotos !== false
-      );
-      if (sentPhoto) {
-        recordProactiveSent(user.telegramId, "proactive_photo");
-        lastProactiveTypeSent.set(user.telegramId, type);
-        continue;
-      }
+      // Proactive photos disabled — stop sending unsolicited selfies.
+      // Users can still request selfies via /selfie or in chat.
 
       let message: string;
 
