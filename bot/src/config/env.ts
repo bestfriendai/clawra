@@ -50,5 +50,5 @@ export const env = {
 
   PORT: Number(optional("PORT", "3000")),
   NODE_ENV: optional("NODE_ENV", "development"),
-  FREE_MODE: optional("FREE_MODE", "true") === "true",
+  FREE_MODE: optional("FREE_MODE", "false") === "true",
 } as const;

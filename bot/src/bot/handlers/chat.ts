@@ -347,11 +347,20 @@ function trackMood(telegramId: number, userMessage: string, replyText: string): 
   return updated;
 }
 
-function shouldAutoTriggerSelfie(_replyText: string, _moods: Mood[]): boolean {
-  // Disabled — the AI's own reply text was matching cue patterns and
-  // creating a feedback loop that spammed selfies on almost every message.
-  // Selfies should only be sent when the USER explicitly asks for one.
-  return false;
+function shouldAutoTriggerSelfie(replyText: string, moods: Mood[]): boolean {
+  const SAFE_CUE_PATTERNS = [
+    /let me send you a (pic|photo|selfie)/i,
+    /sending you a (pic|photo|selfie)/i,
+    /here'?s a (pic|photo|selfie)/i,
+    /take a (pic|photo|selfie) for you/i,
+  ];
+
+  const hasSexualOrRomanticContext = moods
+    .slice(-3)
+    .some((m) => m === "sexual" || m === "romantic");
+  if (!hasSexualOrRomanticContext) return false;
+
+  return SAFE_CUE_PATTERNS.some((pattern) => pattern.test(replyText));
 }
 
 function inferSavedImageCategory(input: string, isNsfw: boolean): string {
@@ -459,6 +468,16 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
     if (balance < CREDIT_COSTS.CHAT_MESSAGE) {
       await ctx.reply(getOutOfCreditsMessage(ctx.girlfriend.name));
       return;
+    }
+  }
+
+  if (!env.FREE_MODE) {
+    const upsellCheck = await shouldShowUpsell(telegramId);
+    if (upsellCheck.show) {
+      const counter = messageCounters.get(telegramId) || 0;
+      if (counter > 0 && counter % UPSELL_INTERVAL === 0) {
+        sendAsMultipleTexts({ ctx, messages: [upsellCheck.suggestion] }).catch(() => {});
+      }
     }
   }
 
@@ -844,7 +863,7 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
     }
 
     if (!extraSent && !suppressAttachmentHooks && shouldTriggerCliffhanger(retentionForPersistence)) {
-      const cliffhangerLine = getCliffhanger();
+      const cliffhangerLine = await getCliffhanger(ctx.girlfriend, userMessage);
       sendAsMultipleTexts({ ctx, messages: [cliffhangerLine.replace(/\|\|\|/g, " ").trim()] }).catch(() => {});
       retentionForPersistence = {
         ...retentionForPersistence,

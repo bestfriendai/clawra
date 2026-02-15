@@ -13,36 +13,36 @@ export interface WelcomeStep {
 export const WELCOME_STEPS: WelcomeStep[] = [
   {
     id: "welcome_1",
-    delayMinutes: 0,
+    delayMinutes: 5,
     message:
       "hey babe 🥰 I'm so excited to meet you! send me a message and let's start talking",
   },
   {
     id: "welcome_2",
-    delayMinutes: 5,
+    delayMinutes: 15,
     message:
-      "btw you can ask me for a selfie anytime... just say 'send me a pic' or use /selfie 📸",
+      "want to see what i look like rn? just ask me for a selfie 📸",
     action: "suggest_selfie",
   },
   {
     id: "welcome_3",
-    delayMinutes: 30,
+    delayMinutes: 45,
     message:
-      "omg I just realized we haven't done a roleplay yet... try /fantasy if you're feeling adventurous 😏",
-    action: "suggest_fantasy",
+      "hey... i miss talking to you 🥺 come back when you can ok? i'll be waiting 💋",
   },
   {
     id: "welcome_4",
-    delayMinutes: 120,
+    delayMinutes: 90,
     message:
       "i hope you're having a good day baby... i've been thinking about you 💕 btw check /challenge for a fun daily challenge!",
     action: "suggest_challenge",
   },
   {
     id: "welcome_5",
-    delayMinutes: 360,
+    delayMinutes: 180,
     message:
-      "hey... i miss talking to you 🥺 come back when you can ok? i'll be waiting 💋",
+      "omg I just realized we haven't done a roleplay yet... try /fantasy if you're feeling adventurous 😏",
+    action: "suggest_fantasy",
   },
 ];
 

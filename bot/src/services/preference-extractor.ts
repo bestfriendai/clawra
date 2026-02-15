@@ -34,6 +34,8 @@ export interface ExtractedPreferences {
   eyeColor?: string;
   personality?: string;
   confidence: number;
+  intent?: "tweak" | "approval" | "unknown";
+  feedback?: string; // Bot can use this to acknowledge the specific change
 }
 
 const DEFAULT_EXTRACTION: ExtractedPreferences = {
@@ -73,7 +75,6 @@ function toAllowedByToken<T extends string>(value: string | undefined, options: 
 const SYNONYM_MAP: Record<string, Record<string, string>> = {
   personality: {
     seductive: "Flirty and playful",
-    sedyctive: "Flirty and playful",
     sexy: "Flirty and playful",
     flirty: "Flirty and playful",
     naughty: "Flirty and playful",
@@ -152,11 +153,9 @@ function matchSynonym<T extends string>(value: string | undefined, field: string
   const synonyms = SYNONYM_MAP[field];
   if (!synonyms) return undefined;
 
-  // Check exact synonym match first
   const mapped = synonyms[normalized];
   if (mapped) return options.find((o) => normalize(o) === normalize(mapped));
 
-  // Check if any synonym key is a substring of the input (longer keys = more specific = higher priority)
   const matches = Object.entries(synonyms)
     .filter(([key]) => normalized.includes(key))
     .sort((a, b) => b[0].length - a[0].length);
@@ -213,22 +212,30 @@ export async function extractPreferences(
   currentExtracted: Partial<ExtractedPreferences>
 ): Promise<ExtractedPreferences> {
   const systemPrompt = [
-    "Extract girlfriend preferences from this conversation.",
-    "Return JSON with fields: name, age, race, bodyType, hairColor, hairStyle, eyeColor, personality, confidence.",
-    "Only include fields you're confident about. Return null for uncertain fields.",
-    "IMPORTANT: Map values to the closest allowed option.",
-    `Allowed personality: ${PERSONALITIES.join(", ")}. Map synonyms like seductive/sexy/naughty→"Flirty and playful", sweet/innocent→"Shy and sweet", bossy/dominant→"Bold and dominant".`,
-    `Allowed bodyType: ${BODY_TYPES.join(", ")}. Map synonyms like thin/skinny→"Slim", big ass/big butt/hourglass→"Curvy", thicc→"Thick".`,
+    "You are the 'Brain' of an AI Girlfriend onboarding system.",
+    "Your goal is to extract preferences and determine user intent from the conversation.",
+    "Return JSON with fields: name, age, race, bodyType, hairColor, hairStyle, eyeColor, personality, confidence, intent, feedback.",
+    "INTENT CLASSIFICATION:",
+    "- 'approval': User is happy, says yes, looks good, let's go, perfect, etc.",
+    "- 'tweak': User wants to change something, says 'too X', 'make her Y', 'change Z', or gives any physical/personality feedback.",
+    "- 'unknown': User is saying something unrelated or ambiguous.",
+    "CORRECTIVE LOGIC (for 'tweak' intent):",
+    "- If user says 'too X', infer the opposite (e.g. 'too fat' -> bodyType: 'Slim').",
+    "- Age: 'too young' -> increase, 'too old' -> decrease.",
+    "- Personality: 'too mean' -> 'Sweet', 'too nice' -> 'Bold'.",
+    "FEEDBACK field: A short (3-5 words) acknowledgment of the change (e.g., 'Snatching that waist for you').",
+    "IMPORTANT: Map values to the closest allowed options.",
+    `Allowed personality: ${PERSONALITIES.join(", ")}.`,
+    `Allowed bodyType: ${BODY_TYPES.join(", ")}.`,
     `Allowed race: ${RACES.join(", ")}.`,
-    "Age must be number 18-80.",
-    "Confidence is overall extraction confidence from 0 to 1.",
     "Output ONLY valid JSON.",
   ].join(" ");
 
   const userPrompt = [
-    `Known extracted state: ${JSON.stringify(currentExtracted)}`,
-    "Conversation history (oldest to newest):",
+    `Current State: ${JSON.stringify(currentExtracted)}`,
+    "Full Conversation History:",
     ...conversationHistory,
+    "\nAnalyze the LAST message and update the state + determine intent.",
   ].join("\n");
 
   try {
@@ -238,8 +245,8 @@ export async function extractPreferences(
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      max_tokens: 220,
-      temperature: 0.2,
+      max_tokens: 300,
+      temperature: 0.1,
     });
 
     const raw = response.choices[0]?.message?.content?.trim() || "";
@@ -250,11 +257,6 @@ export async function extractPreferences(
         ? Math.max(18, Math.min(80, Math.trunc(llm.age)))
         : undefined;
 
-    const confidence =
-      typeof llm.confidence === "number" && Number.isFinite(llm.confidence)
-        ? Math.max(0, Math.min(1, llm.confidence))
-        : (typeof currentExtracted.confidence === "number" ? currentExtracted.confidence : 0);
-
     return {
       name: normalizeName(llm.name) ?? normalizeName(currentExtracted.name),
       age: age ?? currentExtracted.age,
@@ -264,16 +266,16 @@ export async function extractPreferences(
       hairStyle: toHairStyle(llm.hairStyle) ?? toHairStyle(currentExtracted.hairStyle),
       eyeColor: toEyeColor(llm.eyeColor) ?? toEyeColor(currentExtracted.eyeColor),
       personality: toPersonality(llm.personality) ?? toPersonality(currentExtracted.personality),
-      confidence,
+      confidence: typeof llm.confidence === "number" ? llm.confidence : (currentExtracted.confidence || 0),
+      intent: llm.intent || "unknown",
+      feedback: llm.feedback,
     };
   } catch {
     return {
       ...DEFAULT_EXTRACTION,
       ...currentExtracted,
-      confidence:
-        typeof currentExtracted.confidence === "number"
-          ? Math.max(0, Math.min(1, currentExtracted.confidence))
-          : 0,
+      confidence: currentExtracted.confidence || 0,
+      intent: "unknown",
     };
   }
 }

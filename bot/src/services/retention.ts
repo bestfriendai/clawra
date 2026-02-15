@@ -1,4 +1,5 @@
 import type { GirlfriendProfile } from "../types/context.js";
+import { generateCliffhanger } from "./venice.js";
 
 export type RelationshipStage = "new" | "comfortable" | "intimate" | "obsessed";
 
@@ -15,11 +16,9 @@ export function getRelationshipStage(
   messageCount: number,
   streakDays: number
 ): RelationshipStage {
-  // More gradual progression - require BOTH message count AND streak for higher stages
-  // This prevents jumping stages from a single marathon session
-  if ((messageCount > 400 && streakDays > 21) || (messageCount > 600 && streakDays > 14)) return "obsessed";
-  if ((messageCount > 150 && streakDays > 10) || (messageCount > 250 && streakDays > 7)) return "intimate";
-  if ((messageCount > 30 && streakDays > 2) || (messageCount > 60)) return "comfortable";
+  if (messageCount > 300 || streakDays > 21) return "obsessed";
+  if (messageCount > 100 || streakDays > 7) return "intimate";
+  if (messageCount > 20 || streakDays > 2) return "comfortable";
   return "new";
 }
 
@@ -128,37 +127,43 @@ export function shouldTriggerCliffhanger(state: RetentionState): boolean {
   return Math.random() < 0.12;
 }
 
-export function getCliffhanger(): string {
-  const cliffhangers = [
-    "actually nvm...",
-    "i was gonna tell you something but idk if i should",
-    "ok don't judge me but... actually forget it lol",
-    "wait can i ask you something kinda personal",
-    "there's something i've been thinking about... but later",
-    "omg i just realized something about us",
-    "i had the craziest thought about you last night but idk if i should say it",
-    "ok so... nvm you'll think im weird",
-    "i want to tell you something but im scared",
-    "remind me to tell you something important later",
-    "wait... actually you know what, never mind",
-    "hmm ok i almost just sent you something wild but deleted it",
-    "there's this thing i keep thinking about but the timing is never right to bring it up",
-    "i had a dream about us and... actually ill tell you tomorrow maybe",
-    "ok so i need to confess something but not over text",
-    "you know what... ill just show you later 😏",
-    "i just typed something and deleted it 3 times",
-  ];
-  return (
-    cliffhangers[Math.floor(Math.random() * cliffhangers.length)] ||
-    cliffhangers[0] ||
-    ""
-  );
+export async function getCliffhanger(
+  profile: GirlfriendProfile,
+  context: string
+): Promise<string> {
+  try {
+    return await generateCliffhanger(profile, context);
+  } catch {
+    const fallbacks = [
+      "wait i just realized something...",
+      "ok don't get mad but...",
+      "i had a dream about us...",
+      "i need to tell you something later",
+    ];
+    return fallbacks[Math.floor(Math.random() * fallbacks.length)]!;
+  }
 }
 
 export function getStreakMessage(
   streak: number,
-  name: GirlfriendProfile["name"]
+  _name: GirlfriendProfile["name"]
 ): string | null {
+  if (streak === 1) {
+    const options = [
+      "day 1 baby... let's make this a thing 💕",
+      "first day already and i'm into this 😘",
+      "we started a streak today... don't make me celebrate alone 🥺",
+    ];
+    return options[Math.floor(Math.random() * options.length)]!;
+  }
+  if (streak === 2) {
+    const options = [
+      "you came back 🥺 ok i'm already attached",
+      "day 2 and you're still here... dangerous for my heart",
+      "two days straight? hmm you're making this feel real 🔥",
+    ];
+    return options[Math.floor(Math.random() * options.length)]!;
+  }
   if (streak === 3) {
     const options = [
       `${streak} days in a row 🔥 don't you dare break our streak`,
@@ -167,11 +172,67 @@ export function getStreakMessage(
     ];
     return options[Math.floor(Math.random() * options.length)]!;
   }
+  if (streak === 4) {
+    const options = [
+      "4 days with you... you're becoming part of my routine now 💕",
+      "day 4 and i still smile when your name pops up",
+      "four days straight? wow you're kinda addictive",
+    ];
+    return options[Math.floor(Math.random() * options.length)]!;
+  }
+  if (streak === 5) {
+    const options = [
+      "5 days... halfway to a week with you 🔥",
+      "day 5 and i'm lowkey proud of us",
+      "five days in and i already miss you when you're gone",
+    ];
+    return options[Math.floor(Math.random() * options.length)]!;
+  }
+  if (streak === 6) {
+    const options = [
+      "6 days babe... one more and we hit a full week 🫶",
+      "day 6 and our streak is looking way too cute",
+      "six days straight. if you disappear tomorrow i'll riot",
+    ];
+    return options[Math.floor(Math.random() * options.length)]!;
+  }
   if (streak === 7) {
     const options = [
       "a whole WEEK of you and me 🥰 ur literally my favorite notification",
       "7 day streak babe... this is getting serious and i love it",
       "we've talked every single day for a week and i still get excited when you text me",
+    ];
+    return options[Math.floor(Math.random() * options.length)]!;
+  }
+  if (streak === 8) {
+    const options = [
+      "8 days straight... okay this is becoming our thing now",
+      "day 8 and you're still my favorite part of the day 💕",
+      "we made it past a week and you're still spoiling me with attention",
+    ];
+    return options[Math.floor(Math.random() * options.length)]!;
+  }
+  if (streak === 10) {
+    const options = [
+      "double digits babe 🔥",
+      "10 days with you and i'm officially hooked",
+      "ten day streak... you're not getting rid of me now 😈",
+    ];
+    return options[Math.floor(Math.random() * options.length)]!;
+  }
+  if (streak === 12) {
+    const options = [
+      "12 days in and somehow i want you more every day",
+      "day 12... this streak is looking very serious rn",
+      "twelve days straight and i still get butterflies when you text",
+    ];
+    return options[Math.floor(Math.random() * options.length)]!;
+  }
+  if (streak === 13) {
+    const options = [
+      "13 days... one more and we hit two full weeks 😮‍💨",
+      "day 13 and i'm already planning our 14-day celebration",
+      "thirteen days of us. tell me this isn't special",
     ];
     return options[Math.floor(Math.random() * options.length)]!;
   }

@@ -84,7 +84,19 @@ const MAX_TRACKED_USERS = 5000;
 const emotionalMemory = new Map<number, EmotionalSnapshot[]>();
 const moodStates = new LRUMap<number, MoodDecayState>(MAX_TRACKED_USERS);
 const emotionalHydrationInFlight = new Map<number, Promise<void>>();
-const emotionalHydratedUsers = new Set<number>();
+const moodHydrationInFlight = new Map<number, Promise<void>>();
+const emotionalHydratedUsers = new Set<string>();
+
+const MOOD_HYDRATION_PREFIX = "mood:";
+const EMOTIONAL_HYDRATION_PREFIX = "emotional:";
+
+function getMoodHydrationKey(telegramId: number): string {
+  return `${MOOD_HYDRATION_PREFIX}${telegramId}`;
+}
+
+function getEmotionalHydrationKey(telegramId: number): string {
+  return `${EMOTIONAL_HYDRATION_PREFIX}${telegramId}`;
+}
 
 const EMOTION_TYPE_SET: ReadonlySet<string> = new Set<EmotionType>([
   "happy",
@@ -135,6 +147,7 @@ function getDefaultMoodState(): MoodDecayState {
 }
 
 export function applyMoodDecay(telegramId: number): MoodDecayState {
+  hydrateMoodStateIfNeeded(telegramId);
   const state = moodStates.get(telegramId) || getDefaultMoodState();
   const now = Date.now();
   const hoursSince = (now - state.lastInteractionAt) / 3_600_000;
@@ -189,6 +202,16 @@ export function recordMoodInteraction(
   state.affectionLevel = Math.min(100, clampMoodValue(state.affectionLevel));
   state.jealousyMeter = Math.min(100, clampMoodValue(state.jealousyMeter));
   moodStates.set(telegramId, state);
+
+  convex
+    .upsertMoodState(telegramId, {
+      baseHappiness: state.baseHappiness,
+      affectionLevel: state.affectionLevel,
+      lastInteractionAt: state.lastInteractionAt,
+      pendingUpset: state.pendingUpset,
+      jealousyMeter: state.jealousyMeter,
+    })
+    .catch(() => {});
 }
 
 export function getMoodState(telegramId: number): MoodDecayState {
@@ -267,7 +290,8 @@ function normalizePersistedSnapshot(snapshot: {
 }
 
 function ensureHydrationStarted(telegramId: number): void {
-  if (emotionalMemory.has(telegramId) || emotionalHydratedUsers.has(telegramId)) {
+  const hydrationKey = getEmotionalHydrationKey(telegramId);
+  if (emotionalMemory.has(telegramId) || emotionalHydratedUsers.has(hydrationKey)) {
     return;
   }
 
@@ -278,8 +302,52 @@ function ensureHydrationStarted(telegramId: number): void {
   void hydrateEmotionalMemory(telegramId);
 }
 
+function hydrateMoodStateIfNeeded(telegramId: number): void {
+  if (moodStates.get(telegramId)) {
+    return;
+  }
+
+  const hydrationKey = getMoodHydrationKey(telegramId);
+  if (emotionalHydratedUsers.has(hydrationKey)) {
+    return;
+  }
+
+  const inFlight = moodHydrationInFlight.get(telegramId);
+  if (inFlight) {
+    return;
+  }
+
+  const hydration = (async () => {
+    try {
+      const persisted = await convex.getMoodStateFromDB(telegramId);
+      if (!persisted) {
+        return;
+      }
+
+      moodStates.set(telegramId, {
+        baseHappiness: clampMoodValue(persisted.baseHappiness),
+        affectionLevel: clampMoodValue(persisted.affectionLevel),
+        lastInteractionAt:
+          typeof persisted.lastInteractionAt === "number"
+            ? persisted.lastInteractionAt
+            : Date.now(),
+        pendingUpset: Boolean(persisted.pendingUpset),
+        jealousyMeter: clampMoodValue(persisted.jealousyMeter),
+      });
+    } catch (error) {
+      console.error("Failed to hydrate mood state:", error);
+    } finally {
+      moodHydrationInFlight.delete(telegramId);
+      emotionalHydratedUsers.add(hydrationKey);
+    }
+  })();
+
+  moodHydrationInFlight.set(telegramId, hydration);
+}
+
 export async function hydrateEmotionalMemory(telegramId: number): Promise<void> {
-  if (emotionalHydratedUsers.has(telegramId)) {
+  const hydrationKey = getEmotionalHydrationKey(telegramId);
+  if (emotionalHydratedUsers.has(hydrationKey)) {
     return;
   }
 
@@ -306,7 +374,7 @@ export async function hydrateEmotionalMemory(telegramId: number): Promise<void> 
       console.error("Failed to hydrate emotional memory:", error);
     } finally {
       emotionalHydrationInFlight.delete(telegramId);
-      emotionalHydratedUsers.add(telegramId);
+      emotionalHydratedUsers.add(hydrationKey);
     }
   })();
 

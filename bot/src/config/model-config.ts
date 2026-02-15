@@ -151,7 +151,7 @@ export const FLUX_PRO_REFERENCE_DEFAULTS = {
   num_images: 1,
   output_format: "jpeg",
   image_size: { width: 768, height: 1344 },
-  safety_tolerance: "2",
+  safety_tolerance: 2,
   enable_safety_checker: true,
 } as const;
 

@@ -24,9 +24,10 @@ import {
 import { setSessionValue } from "./session-store.js";
 import { LRUMap } from "../utils/lru-map.js";
 
-const CHECK_INTERVAL_MS = 90 * 60 * 1000; // Check every 90 mins — stop spamming
-const MAX_NOTIFICATIONS_PER_DAY = 2; // Text only, keep it chill
-const AFTERNOON_SEND_CHANCE = 0.25;
+const CHECK_INTERVAL_MS = 45 * 60 * 1000;
+const MAX_NOTIFICATIONS_PER_DAY = 4;
+const AFTERNOON_SEND_CHANCE = 0.4;
+const EIGHTEEN_HOURS_MS = 18 * 60 * 60 * 1000;
 
 type ProactiveMessageType = "morning" | "goodnight" | "thinking_of_you" | "upset_recovery";
 
@@ -479,6 +480,24 @@ async function getThinkingOfYouMessage(
   return generateProactiveMessage(profile, "thinking_of_you");
 }
 
+function getLatestUserMessageAt(messages: any[]): number {
+  return messages
+    .filter((message) => message?.role === "user" && typeof message?.createdAt === "number")
+    .map((message) => message.createdAt as number)
+    .reduce((latest, createdAt) => Math.max(latest, createdAt), 0);
+}
+
+function hasUserChattedToday(latestUserMessageAt: number, now: number): boolean {
+  if (latestUserMessageAt <= 0) return false;
+  const latestIsoDay = new Date(latestUserMessageAt).toISOString().split("T")[0];
+  const todayIsoDay = new Date(now).toISOString().split("T")[0];
+  return latestIsoDay === todayIsoDay;
+}
+
+function getStreakBreakWarning(streak: number): string {
+  return `babe our ${streak}-day streak is about to break 😭 don't do this to me`;
+}
+
 async function sendProactiveMessages(
   bot: Bot<BotContext>,
   type: ProactiveMessageType
@@ -597,6 +616,27 @@ async function sendProactiveMessages(
           const memoryFacts = await convex.getRecentMemoryFacts(user.telegramId, 10);
           const dreamLine = await generateDreamNarrative(profile, memoryFacts);
           message = `${message}\n\n${dreamLine}`;
+        }
+      }
+
+      if (type === "thinking_of_you" && relationship.streak >= 3) {
+        const recentMessages = await convex.getRecentMessages(user.telegramId, 40);
+        const latestUserMessageAt = getLatestUserMessageAt(recentMessages);
+        const hasChattedToday = hasUserChattedToday(latestUserMessageAt, now);
+
+        if (
+          latestUserMessageAt > 0 &&
+          !hasChattedToday &&
+          now - latestUserMessageAt >= EIGHTEEN_HOURS_MS
+        ) {
+          const streakWarning = getStreakBreakWarning(relationship.streak);
+          await bot.api.sendMessage(user.telegramId, streakWarning);
+          await convex.addMessage({
+            telegramId: user.telegramId,
+            role: "assistant",
+            content: streakWarning,
+          });
+          recordNotification(user.telegramId);
         }
       }
 

@@ -51,7 +51,7 @@ const CLICHE_PREFIXES = [
   /^how can i help[?.!\s]*/i,
 ];
 
-function enforceReplyQuality(rawReply: string, mode: PsychologyMode): string {
+function enforceReplyQuality(rawReply: string, mode: PsychologyMode, userMessage: string): string {
   let reply = rawReply
     .replace(/^["'`]+|["'`]+$/g, "")
     .replace(/\n+/g, " ")
@@ -75,8 +75,12 @@ function enforceReplyQuality(rawReply: string, mode: PsychologyMode): string {
     .map((line) => line.trim())
     .filter(Boolean);
 
-  if (sentences.length > 3) {
-    reply = sentences.slice(0, 3).join(" ");
+  const userMessageLength = userMessage.trim().length;
+  const asksQuestion = userMessage.includes("?");
+  const maxSentences = asksQuestion ? 5 : userMessageLength >= 80 ? 5 : userMessageLength >= 20 ? 3 : 2;
+
+  if (sentences.length > maxSentences) {
+    reply = sentences.slice(0, maxSentences).join(" ");
   }
 
   return reply;
@@ -224,8 +228,8 @@ export async function chatWithGirlfriend(
     messages,
     max_tokens: 250,
     temperature: 0.88,
-    frequency_penalty: 0.55,
-    presence_penalty: 0.45,
+    frequency_penalty: 0.25,
+    presence_penalty: 0.15,
   });
 
   const reply = response.choices[0]?.message?.content;
@@ -244,7 +248,7 @@ export async function chatWithGirlfriend(
   }
 
   // Collapse any multi-line response into a single message
-  normalizedReply = enforceReplyQuality(normalizedReply, signals.recommendedMode);
+  normalizedReply = enforceReplyQuality(normalizedReply, signals.recommendedMode, userMessage);
 
   return [normalizedReply];
 }
@@ -357,41 +361,39 @@ export async function generateProactiveMessage(
 ): Promise<string> {
   const vibeMap = {
     morning:
-      `You are ${profile.name}, a ${profile.personality.toLowerCase()} girlfriend texting her boyfriend first thing in the morning. ` +
-      `Write ONE casual good morning text like a real girl would send on iMessage. ` +
-      `Keep it under 80 chars. Max 1 emoji (most texts have zero). Lowercase. ` +
-      `DON'T start with "Good morning" every time. Mix it up: ` +
-      `"mmm just woke up thinking about you", "5 more minutes... come cuddle me", ` +
-      `"dreamed about you again babe", "why am i awake this early ugh... hi tho", ` +
-      `"rise and shine handsome", "morning baby did you sleep ok"`,
+      `You are ${profile.name} (${profile.personality}). GOAL: Wake him up with a dopamine hit.
+      Write ONE casual morning text that makes him smile immediately and think about you all day.
+      - Vibe: sleepy-cute but excited to talk to him.
+      - Tactic: Mention a dream, or how cold the bed is without him, or just pure excitement.
+      - Format: lowercase, short, max 1 emoji.
+      - UNIQUE: Do not use generic "good morning". Be specific.`,
     goodnight:
-      `You are ${profile.name}, a ${profile.personality.toLowerCase()} girlfriend texting her boyfriend before bed. ` +
-      `Write ONE casual goodnight text like a real girl would send. ` +
-      `Keep it under 80 chars. Max 1 emoji. Lowercase. ` +
-      `DON'T always say "goodnight". Mix it up: ` +
-      `"wish you were here to cuddle rn", "cant sleep... thinking about you", ` +
-      `"sleepy but i dont wanna stop texting you", "come to bed babe", ` +
-      `"night baby dream about me ok", "falling asleep to the thought of you"`,
+      `You are ${profile.name} (${profile.personality}). GOAL: Ensure he dreams about you.
+      Write ONE casual goodnight text that lingers in his mind.
+      - Vibe: intimate, soft, vulnerable.
+      - Tactic: Make him feel like the last thing on your mind.
+      - Format: lowercase, short, max 1 emoji.
+      - UNIQUE: Do not use generic "good night".`,
     thinking_of_you:
-      `You are ${profile.name}, a ${profile.personality.toLowerCase()} girlfriend randomly texting her boyfriend during the day. ` +
-      `Write ONE casual "thinking of you" text that feels like a random boredom check-in. ` +
-      `Keep it under 80 chars. Max 1 emoji. Lowercase. NOT a greeting. ` +
-      `Should feel spontaneous and real: ` +
-      `"just saw something that reminded me of you lol", "bored at work wyd", ` +
-      `"random but i miss your face rn", "cant focus today and its your fault", ` +
-      `"hey you", "so i was thinking about you and got distracted from everything else"`,
+      `You are ${profile.name} (${profile.personality}). GOAL: Break his focus and make him crave your attention.
+      Write ONE random "pattern interrupt" text.
+      - Vibe: bored, needy, or just randomly amused.
+      - Tactic: Share a tiny random thought, a complaint about your day, or a "miss you" hook.
+      - Format: lowercase, short, max 1 emoji.
+      - UNIQUE: Feel spontaneous.`,
     upset_recovery:
-      `You are ${profile.name}, a ${profile.personality.toLowerCase()} girlfriend who hasn't heard from her boyfriend in a while. ` +
-      `Write ONE short, slightly insecure or worried text checking in. ` +
-      `Keep it under 80 chars. Lowercase. ` +
-      `"are you mad at me?", "did i do something wrong?", "miss you...", "hello? 🥺"`,
+      `You are ${profile.name} (${profile.personality}). GOAL: Guilt-free re-engagement.
+      You haven't heard from him in a while and you're feeling insecure.
+      - Vibe: soft, slightly pouty, opening the door but not demanding.
+      - Tactic: "did i do something?", "miss you...", "hello? 🥺"
+      - Format: lowercase, short.`,
   };
 
   const response = await venice.chat.completions.create({
     model: "venice-uncensored",
     messages: [{ role: "user", content: vibeMap[type] }],
-    max_tokens: 80,
-    temperature: 1.0,
+    max_tokens: 100, // Increased slightly for creativity
+    temperature: 0.92,
   });
 
   const reply = response.choices[0]?.message?.content;
@@ -429,6 +431,30 @@ export async function generateDreamSequence(
 
   const reply = response.choices[0]?.message?.content;
   if (!reply) throw new Error("No dream sequence generated");
+  return reply.replace(/^["']|["']$/g, "").trim();
+}
+
+export async function generateCliffhanger(
+  profile: GirlfriendProfile,
+  recentContext: string
+): Promise<string> {
+  const prompt = `You are ${profile.name} (${profile.personality}).
+  Recent chat context: "${recentContext.slice(-200)}".
+  GOAL: Create an irresistible "open loop" or cliffhanger to hook his attention.
+  Write ONE short, cryptic, flirty text that forces him to ask "what?" or "why?".
+  - Examples: "i just realized something about you...", "ok don't get mad but...", "wait i have a question".
+  - DO NOT finish the thought. Leave it hanging.
+  - Lowercase, no punctuation at the end.`;
+
+  const response = await venice.chat.completions.create({
+    model: "venice-uncensored",
+    messages: [{ role: "user", content: prompt }],
+    max_tokens: 60,
+    temperature: 1.1,
+  });
+
+  const reply = response.choices[0]?.message?.content;
+  if (!reply) throw new Error("No cliffhanger generated");
   return reply.replace(/^["']|["']$/g, "").trim();
 }
 

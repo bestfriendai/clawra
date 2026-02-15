@@ -52,6 +52,8 @@ export interface MemoryFact {
 }
 
 const RECALL_PATTERNS = /remember|last time|you said|you told me|we talked about|that time|you mentioned/i;
+const PASSIVE_RECALL_INTERVAL = 5;
+const passiveRecallCounters = new Map<number, number>();
 
 const RECALL_STOPWORDS = new Set([
   "remember",
@@ -120,12 +122,29 @@ function scoreMemoryRelevance(factText: string, keywords: string[]): number {
   return score;
 }
 
+function shouldAttemptPassiveRecall(telegramId: number): boolean {
+  const nextCount = (passiveRecallCounters.get(telegramId) ?? 0) + 1;
+  passiveRecallCounters.set(telegramId, nextCount);
+  return nextCount % PASSIVE_RECALL_INTERVAL === 0;
+}
+
 export async function findRelevantMemories(
   telegramId: number,
   message: string,
   limit: number = 5
 ): Promise<MemoryFact[]> {
-  if (!RECALL_PATTERNS.test(message)) return [];
+  const isExplicitRecall = RECALL_PATTERNS.test(message);
+  const normalizedLimit = Math.max(1, limit);
+  const keywords = extractRecallKeywords(message);
+
+  if (!isExplicitRecall) {
+    if (!shouldAttemptPassiveRecall(telegramId)) {
+      return [];
+    }
+    if (keywords.length < 2) {
+      return [];
+    }
+  }
 
   let rawFacts: unknown[] = [];
   try {
@@ -157,19 +176,25 @@ export async function findRelevantMemories(
 
   if (facts.length === 0) return [];
 
-  const keywords = extractRecallKeywords(message);
-  const normalizedLimit = Math.max(1, limit);
+  const effectiveLimit = isExplicitRecall
+    ? normalizedLimit
+    : Math.min(2, normalizedLimit);
+  const explicitRecallBonus = isExplicitRecall ? 3 : 0;
 
   if (keywords.length === 0) {
+    if (!isExplicitRecall) {
+      return [];
+    }
+
     return facts
       .sort((a, b) => getFactTimestamp(b) - getFactTimestamp(a))
-      .slice(0, normalizedLimit);
+      .slice(0, effectiveLimit);
   }
 
   const ranked = facts
     .map((fact) => ({
       ...fact,
-      relevanceScore: scoreMemoryRelevance(fact.fact, keywords),
+      relevanceScore: scoreMemoryRelevance(fact.fact, keywords) + explicitRecallBonus,
     }))
     .filter((fact) => (fact.relevanceScore ?? 0) > 0)
     .sort((a, b) => {
@@ -183,12 +208,16 @@ export async function findRelevantMemories(
     });
 
   if (ranked.length > 0) {
-    return ranked.slice(0, normalizedLimit);
+    return ranked.slice(0, effectiveLimit);
+  }
+
+  if (!isExplicitRecall) {
+    return [];
   }
 
   return facts
     .sort((a, b) => getFactTimestamp(b) - getFactTimestamp(a))
-    .slice(0, normalizedLimit);
+    .slice(0, effectiveLimit);
 }
 
 // ---------------------------------------------------------------------------

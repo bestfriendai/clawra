@@ -1,4 +1,4 @@
-export const MAX_CONTEXT_TOKENS = 8000;
+export const MAX_CONTEXT_TOKENS = 14000;
 
 interface MessageLike {
   role: string;

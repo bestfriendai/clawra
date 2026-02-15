@@ -44,11 +44,11 @@ export const TRIAL_CREDITS = 75;
 export const REFERRAL_BONUS = 25;
 
 export const FREE_TIER = {
-  dailyMessages: 10,
+  dailyMessages: 25,
   dailySelfies: 1,
-  dailyVoiceNotes: 0,
+  dailyVoiceNotes: 3,
   nsfwImages: 0,
-  videos: 0,
+  videos: 1,
 } as const;
 
 // --- Pricing Tiers (v2) ---

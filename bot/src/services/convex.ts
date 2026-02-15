@@ -107,6 +107,14 @@ export interface EmotionalSnapshotRecord {
   significantEvent?: string;
 }
 
+export interface MoodStateRecord {
+  baseHappiness: number;
+  affectionLevel: number;
+  lastInteractionAt: number;
+  pendingUpset: boolean;
+  jealousyMeter: number;
+}
+
 export interface ProfileEnvironment {
   homeDescription: string;
   bedroomDetails: string;
@@ -501,6 +509,36 @@ export const convex = {
     mutation("sessionState:set", { telegramId, key, value }),
   getAllSessionValues: (telegramId: number): Promise<Record<string, string>> =>
     query("sessionState:getAll", { telegramId }),
+
+  upsertMoodState: (telegramId: number, state: MoodStateRecord): Promise<void> =>
+    mutation("sessionState:set", {
+      telegramId,
+      key: "mood_state",
+      value: JSON.stringify(state),
+    }),
+  getMoodStateFromDB: async (telegramId: number): Promise<MoodStateRecord | null> => {
+    const raw = await query("sessionState:get", { telegramId, key: "mood_state" });
+    if (typeof raw !== "string" || raw.trim() === "") {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as Partial<MoodStateRecord>;
+      if (
+        typeof parsed.baseHappiness !== "number" ||
+        typeof parsed.affectionLevel !== "number" ||
+        typeof parsed.lastInteractionAt !== "number" ||
+        typeof parsed.pendingUpset !== "boolean" ||
+        typeof parsed.jealousyMeter !== "number"
+      ) {
+        return null;
+      }
+
+      return parsed as MoodStateRecord;
+    } catch {
+      return null;
+    }
+  },
 
   getUserPreferences: (telegramId: number): Promise<UserPreferences> =>
     query("userPreferences:getPreferences", { telegramId }),

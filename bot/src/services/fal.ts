@@ -153,7 +153,7 @@ export async function generateImage(
       console.warn(`Primary model ${modelId} failed, falling back to nano-banana-pro`);
       return await _generateWithModel(MODEL_IDS["nano-banana-pro"], safePrompt, {
         ...options,
-        safety_tolerance: "2",
+        safety_tolerance: 2,
       });
     }
     throw err;
@@ -170,9 +170,15 @@ export async function generateReferenceImage(
 ): Promise<FalImageResult> {
   const safePrompt = sanitizeImagePrompt(prompt);
 
-  // Always use FLUX.2 Pro for reference images — quality matters most here
-  // Safety checker ON for reference images — these must always be SFW
+  // Use Z-Image Base for reference images as requested
   try {
+    return await _generateWithModel(MODEL_IDS["z-image-base"], safePrompt, {
+      num_inference_steps: 28,
+      guidance_scale: 4.5, // Slightly higher for better instruction following
+      negative_prompt: negativePrompt || getZImageNegativePrompt(),
+    });
+  } catch (err) {
+    console.warn("Z-Image Base failed for reference, falling back to Flux 2 Pro");
     const result = await withRetry(
       () => fal.subscribe(MODEL_IDS["flux-2-pro"], {
         input: {
@@ -180,20 +186,17 @@ export async function generateReferenceImage(
           num_images: 1,
           output_format: "jpeg",
           image_size: "square_hd",
-          safety_tolerance: "2",
+          safety_tolerance: 2,
           enable_safety_checker: true,
           guidance_scale: 3.0,
           num_inference_steps: 35,
         } as any,
       }),
-      "generate reference image (flux-2-pro)"
+      "generate reference image fallback (flux-2-pro)"
     );
     const data = result.data as { images?: FalImageResult[] };
     if (!data.images?.length) throw new Error("No images from FLUX.2 Pro");
     return data.images[0];
-  } catch (err) {
-    console.warn("FLUX.2 Pro failed for reference, falling back to Z-Image Base");
-    return _generateWithModel(MODEL_IDS["z-image-base"], safePrompt, {});
   }
 }
 
@@ -241,7 +244,7 @@ async function _generateWithModel(
       num_images: 1,
       output_format: "jpeg",
       image_size: { width: 720, height: 1280 },
-      safety_tolerance: "2",
+      safety_tolerance: 2,
       enable_safety_checker: true,
       ...restOptions,
     };
@@ -251,7 +254,7 @@ async function _generateWithModel(
       num_images: 1,
       output_format: "jpeg",
       image_size: { width: 720, height: 1280 },
-      safety_tolerance: "2",
+      safety_tolerance: 2,
       enable_safety_checker: true,
       ...restOptions,
     };
@@ -269,40 +272,6 @@ async function _generateWithModel(
   const images = data.images;
   if (!images || images.length === 0) {
     throw new Error(`No images returned from ${modelId}`);
-  }
-  return images[0];
-}
-
-export async function editImageSFW(
-  referenceImageUrl: string,
-  prompt: string
-): Promise<FalImageResult> {
-  const safePrompt = sanitizeImagePrompt(prompt);
-
-  // Keep wrapper lean — buildSelfieSFW already includes identity anchor + realism markers.
-  // Grok Edit has an 8000 char prompt limit — don't waste it on redundant realism text.
-  const identityPrompt = [
-    "Exact same person from the reference image. Same face, bone structure, skin tone, body type.",
-    safePrompt,
-  ].join(" ");
-
-  const result = await withRetry(
-    () =>
-      fal.subscribe(MODEL_IDS["grok-edit"], {
-        input: {
-          prompt: identityPrompt,
-          image_url: referenceImageUrl,
-          num_images: 1,
-          output_format: "jpeg",
-        } as any,
-      }),
-    "edit image sfw (grok-edit)"
-  );
-
-  const data = result.data as { images?: FalImageResult[] };
-  const images = data.images;
-  if (!images || images.length === 0) {
-    throw new Error("No images returned from Grok Imagine Edit");
   }
   return images[0];
 }
@@ -327,6 +296,41 @@ const REALISM_NEGATIVE = [
   // Anti-unrealistic body
   "unrealistic proportions, impossibly thin waist, bolt-on breasts, silicon implant look, exaggerated features",
 ].join(", ");
+
+export async function editImageSFW(
+  referenceImageUrl: string,
+  prompt: string
+): Promise<FalImageResult> {
+  const safePrompt = sanitizeImagePrompt(prompt);
+
+  // Keep wrapper lean — buildSelfieSFW already includes identity anchor + realism markers.
+  // Grok Edit has an 8000 char prompt limit — don't waste it on redundant realism text.
+  const identityPrompt = [
+    "Exact same person from the reference image. Same face, bone structure, skin tone, body type.",
+    safePrompt,
+  ].join(" ");
+
+  const result = await withRetry(
+    () =>
+      fal.subscribe(MODEL_IDS["grok-edit"], {
+        input: {
+          prompt: identityPrompt,
+          image_url: referenceImageUrl,
+          negative_prompt: REALISM_NEGATIVE,
+          num_images: 1,
+          output_format: "jpeg",
+        } as any,
+      }),
+    "edit image sfw (grok-edit)"
+  );
+
+  const data = result.data as { images?: FalImageResult[] };
+  const images = data.images;
+  if (!images || images.length === 0) {
+    throw new Error("No images returned from Grok Imagine Edit");
+  }
+  return images[0];
+}
 
 export async function editImageNSFW(
   referenceImageUrl: string,
@@ -353,7 +357,7 @@ export async function editImageNSFW(
         fal.subscribe(primaryEditModel, {
           input: {
             prompt: hunyuanPrompt,
-            image_urls: [referenceImageUrl],
+            image_url: referenceImageUrl,
             guidance_scale: 3.5,
             num_inference_steps: 28,
             enable_safety_checker: false,
@@ -383,8 +387,8 @@ export async function editImageNSFW(
           fal.subscribe(fallbackModel, {
             input: {
               prompt: fallbackPrompt,
-              image_urls: [referenceImageUrl],
-              safety_tolerance: "5",
+              image_url: referenceImageUrl,
+              safety_tolerance: 5,
               enable_safety_checker: false,
               image_size: { width: 720, height: 1280 },
             } as any,
@@ -437,9 +441,9 @@ export async function generateWithKontext(
         input: {
           image_url: referenceImageUrl,
           prompt: safePrompt,
-          safety_tolerance: "5",
+          safety_tolerance: 5,
           output_format: "png",
-        },
+        } as any,
       }),
     "generate kontext image"
   );
@@ -507,7 +511,7 @@ const ALL_I2I_MODELS = [
       const result = await fal.subscribe(MODEL_IDS["kling-v3-i2i"], {
         input: {
           prompt,
-          image_url: refUrl,
+          image_urls: [refUrl],
           aspect_ratio: "9:16",
           resolution: "1K",
           output_format: "jpeg",
@@ -562,7 +566,7 @@ const ALL_I2I_MODELS = [
       const result = await fal.subscribe(MODEL_IDS["hunyuan-v3-edit"], {
         input: {
           prompt: identityPrompt,
-          image_urls: [refUrl],
+          image_url: refUrl,
           guidance_scale: 3.5,
           num_inference_steps: 28,
           enable_safety_checker: false,
@@ -888,7 +892,7 @@ export async function generateVoiceNote(
 
   const result = await withRetry(
     () =>
-      fal.subscribe("fal-ai/minimax/speech-02-hd", {
+      fal.subscribe(MODEL_IDS["minimax-tts"], {
         input: {
           text: safePrompt,
           voice_setting: {
