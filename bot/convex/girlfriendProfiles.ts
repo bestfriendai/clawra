@@ -59,16 +59,36 @@ function buildDefaultEnvironment(personality: string): ProfileEnvironment {
   };
 }
 
-async function ensureProfileDefaults(
+/**
+ * Compute default values for a profile without writing to the database.
+ * Safe to use in both queries (read-only) and mutations.
+ */
+function computeProfileDefaults(
+  profile: any,
+  fallbackSlotIndex: number = 0
+) {
+  if (!profile) return profile;
+
+  return {
+    ...profile,
+    isActive: profile.isActive ?? true,
+    slotIndex: profile.slotIndex ?? fallbackSlotIndex,
+    environment: profile.environment ?? buildDefaultEnvironment(profile.personality || ""),
+  };
+}
+
+/**
+ * Compute defaults AND persist them to the database.
+ * Only safe to call from mutations (write context).
+ */
+async function ensureProfileDefaultsMut(
   ctx: any,
   profile: any,
   fallbackSlotIndex: number = 0
 ) {
   if (!profile) return profile;
 
-  const isActive = profile.isActive ?? true;
-  const slotIndex = profile.slotIndex ?? fallbackSlotIndex;
-  const environment = profile.environment ?? buildDefaultEnvironment(profile.personality || "");
+  const normalized = computeProfileDefaults(profile, fallbackSlotIndex);
 
   if (
     profile.isActive === undefined ||
@@ -76,19 +96,14 @@ async function ensureProfileDefaults(
     profile.environment === undefined
   ) {
     await ctx.db.patch(profile._id, {
-      isActive,
-      slotIndex,
-      environment,
+      isActive: normalized.isActive,
+      slotIndex: normalized.slotIndex,
+      environment: normalized.environment,
       updatedAt: Date.now(),
     });
   }
 
-  return {
-    ...profile,
-    isActive,
-    slotIndex,
-    environment,
-  };
+  return normalized;
 }
 
 async function getActiveByTelegramId(ctx: any, telegramId: number) {
@@ -100,7 +115,7 @@ async function getActiveByTelegramId(ctx: any, telegramId: number) {
     .first();
 
   if (active) {
-    return await ensureProfileDefaults(ctx, active, 0);
+    return computeProfileDefaults(active, 0);
   }
 
   const fallback = await ctx.db
@@ -110,7 +125,7 @@ async function getActiveByTelegramId(ctx: any, telegramId: number) {
 
   if (!fallback) return null;
 
-  return await ensureProfileDefaults(ctx, fallback, 0);
+  return computeProfileDefaults(fallback, 0);
 }
 
 export const get = query({
@@ -142,11 +157,9 @@ export const getAllProfiles = internalQuery({
       .withIndex("by_telegramId", (q) => q.eq("telegramId", telegramId))
       .collect();
 
-    const normalized = await Promise.all(
-      profiles.map((profile, i) => ensureProfileDefaults(ctx, profile, i))
-    );
+    const normalized = profiles.map((profile, i) => computeProfileDefaults(profile, i));
 
-    return normalized.sort((a, b) => a.slotIndex - b.slotIndex);
+    return normalized.sort((a: any, b: any) => a.slotIndex - b.slotIndex);
   },
 });
 
@@ -158,11 +171,9 @@ export const getAll = query({
       .withIndex("by_telegramId", (q) => q.eq("telegramId", telegramId))
       .collect();
 
-    const normalized = await Promise.all(
-      profiles.map((profile, i) => ensureProfileDefaults(ctx, profile, i))
-    );
+    const normalized = profiles.map((profile, i) => computeProfileDefaults(profile, i));
 
-    return normalized.sort((a, b) => a.slotIndex - b.slotIndex);
+    return normalized.sort((a: any, b: any) => a.slotIndex - b.slotIndex);
   },
 });
 
@@ -199,7 +210,7 @@ export const deactivateAll = internalMutation({
     const now = Date.now();
     await Promise.all(
       profiles.map(async (profile, i) => {
-        const normalized = await ensureProfileDefaults(ctx, profile, i);
+        const normalized = await ensureProfileDefaultsMut(ctx, profile, i);
         await ctx.db.patch(profile._id, {
           isActive: false,
           slotIndex: normalized.slotIndex,
@@ -231,7 +242,7 @@ export const switchProfile = internalMutation({
     const now = Date.now();
     await Promise.all(
       profiles.map(async (profile, i) => {
-        const normalized = await ensureProfileDefaults(ctx, profile, i);
+        const normalized = await ensureProfileDefaultsMut(ctx, profile, i);
         await ctx.db.patch(profile._id, {
           isActive: profile._id === profileId,
           slotIndex: normalized.slotIndex,
@@ -263,7 +274,7 @@ export const switchActive = mutation({
     const now = Date.now();
     await Promise.all(
       profiles.map(async (profile, i) => {
-        const normalized = await ensureProfileDefaults(ctx, profile, i);
+        const normalized = await ensureProfileDefaultsMut(ctx, profile, i);
         await ctx.db.patch(profile._id, {
           isActive: profile._id === profileId,
           slotIndex: normalized.slotIndex,
@@ -307,7 +318,7 @@ export const create = mutation({
       .collect();
 
     const normalized = await Promise.all(
-      existing.map((profile, i) => ensureProfileDefaults(ctx, profile, i))
+      existing.map((profile, i) => ensureProfileDefaultsMut(ctx, profile, i))
     );
 
     const nextSlotIndex = normalized.length

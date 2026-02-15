@@ -22,7 +22,7 @@ import type {
 } from "../../config/girlfriend-options.js";
 import { CREDIT_COSTS } from "../../config/pricing.js";
 import { convex } from "../../services/convex.js";
-import { generateImage } from "../../services/fal.js";
+import { generateReferenceImage, generateReferenceWithVariation } from "../../services/fal.js";
 import { buildReferencePrompt } from "../../services/girlfriend-prompt.js";
 import { checkAndRecordAutoEvent } from "../../services/relationship-events.js";
 import { startWelcomeSequence } from "../../services/welcome-sequence.js";
@@ -673,7 +673,7 @@ export async function girlfriendSetupClassic(conversation: SetupConversation, ct
 
     let imageUrl: string;
     try {
-      const generated = await generateImage(basePrompt);
+      const generated = await generateReferenceImage(basePrompt);
 
       if (!env.FREE_MODE) {
         await convex.spendCredits({
@@ -762,14 +762,7 @@ export async function girlfriendSetupClassic(conversation: SetupConversation, ct
       await ctx.reply(pickRandom(REROLL_MESSAGES));
 
       try {
-        const variations = [
-          "different candid angle and expression",
-          "different lighting mood and camera framing",
-          "different background context, same identity",
-          "different posture, same face and body",
-        ];
-        const prompt = `${basePrompt}, ${variations[rerollCount % variations.length]}`;
-        const generated = await generateImage(prompt);
+        const generated = await generateReferenceWithVariation(basePrompt, rerollCount);
 
         if (!env.FREE_MODE) {
           await convex.spendCredits({
@@ -844,20 +837,27 @@ async function generateOnboardingReply(
   extracted: Partial<ExtractedPreferences>,
   missing: string[]
 ): Promise<string> {
+  const alreadyKnown = Object.entries(extracted)
+    .filter(([k, v]) => v && k !== "confidence")
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(", ");
+
   const system = [
     "You are a flirty, natural girlfriend texting during onboarding.",
     "Reply with one casual text message, max 2 short sentences.",
     "Do not use lists or JSON.",
     "Sound human, lowercase is fine, max one emoji.",
     "Your goal is to gently steer the user into sharing missing preferences.",
+    "IMPORTANT: Do NOT ask about things already known. Do NOT repeat previous questions.",
+    "Only ask about the FIRST missing field listed below.",
   ].join(" ");
 
   const user = [
-    `Known extracted preferences: ${JSON.stringify(extracted)}`,
-    `Still missing: ${missing.join(", ") || "none"}`,
+    `Already known (DO NOT ask about these): ${alreadyKnown || "nothing yet"}`,
+    `Still missing (ask about the FIRST one only): ${missing.join(", ") || "none"}`,
     "Recent chat:",
     toConversationText(history),
-    "Write the next single message from her.",
+    "Write the next single message from her. Do not re-ask anything from the chat above.",
   ].join("\n");
 
   try {
@@ -920,7 +920,7 @@ async function runNaturalDiscovery(
 
   for (let i = 0; i < 3; i += 1) {
     const missing = getMissingCriticalFields(current);
-    if (missing.length === 0 && i >= 1) {
+    if (missing.length === 0) {
       break;
     }
 
@@ -1012,7 +1012,7 @@ export async function girlfriendSetup(conversation: SetupConversation, ctx: BotC
 
     let imageUrl: string;
     try {
-      const generated = await generateImage(basePrompt);
+      const generated = await generateReferenceImage(basePrompt);
 
       if (!env.FREE_MODE) {
         await convex.spendCredits({
@@ -1057,14 +1057,7 @@ export async function girlfriendSetup(conversation: SetupConversation, ctx: BotC
         rerollCount += 1;
         await ctx.reply(pickRandom(REROLL_MESSAGES));
         try {
-          const variations = [
-            "different candid angle and expression",
-            "different lighting mood and camera framing",
-            "different background context, same identity",
-            "different posture, same face and body",
-          ];
-          const prompt = `${basePrompt}, ${variations[rerollCount % variations.length]}`;
-          const generated = await generateImage(prompt);
+          const generated = await generateReferenceWithVariation(basePrompt, rerollCount);
 
           if (!env.FREE_MODE) {
             await convex.spendCredits({
