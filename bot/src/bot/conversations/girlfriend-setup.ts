@@ -23,7 +23,7 @@ import type {
 import { CREDIT_COSTS } from "../../config/pricing.js";
 import { convex } from "../../services/convex.js";
 import { generateReferenceImage, generateReferenceWithVariation } from "../../services/fal.js";
-import { buildReferencePrompt } from "../../services/girlfriend-prompt.js";
+import { buildReferencePrompt, buildSelfieSFW } from "../../services/girlfriend-prompt.js";
 import { checkAndRecordAutoEvent } from "../../services/relationship-events.js";
 import { startWelcomeSequence } from "../../services/welcome-sequence.js";
 import { env } from "../../config/env.js";
@@ -1008,7 +1008,7 @@ export async function girlfriendSetup(conversation: SetupConversation, ctx: BotC
       personality: draft.personality,
     });
 
-    await ctx.reply("okay fine, you win... *sends photo*");
+    await ctx.reply("okay fine, you win... i'm generating a full character sheet for me now 💕");
 
     let imageUrl: string;
     try {
@@ -1033,12 +1033,90 @@ export async function girlfriendSetup(conversation: SetupConversation, ctx: BotC
     }
 
     await ctx.replyWithPhoto(imageUrl, {
-      caption: buildDraftSummary(draft),
+      caption: "here's my 3x3 character sheet! what do you think? 🙈",
     });
 
-    await ctx.reply("want me to try a different look?");
+    await ctx.reply("be honest... do you want me to change anything about my look? like my body, hair, or vibe? (e.g. 'make her hair longer' or 'more curves')");
 
     let rerollCount = 0;
+    while (true) {
+      const response = await waitForTextMessage(conversation, ctx);
+      history.push(`user: ${response}`);
+
+      // Handle physical tweaks
+      const lowerResp = response.toLowerCase();
+      let didTweak = false;
+      
+      if (lowerResp.includes("bigger") || lowerResp.includes("smaller") || lowerResp.includes("change") || lowerResp.includes("more") || lowerResp.includes("shorter") || lowerResp.includes("longer")) {
+        await ctx.reply("noted... let me adjust myself for you real quick 🫦");
+        // Re-extract preferences with the new tweak
+        const updatedExtracted = await conversation.external(() => extractPreferences([...history], extracted));
+        extracted = { ...extracted, ...updatedExtracted };
+        
+        // Update the draft and prompt
+        const updatedDraft = prefsToSetupDraft(extracted);
+        const updatedPrompt = buildReferencePrompt(updatedDraft);
+        
+        rerollCount += 1;
+        try {
+          const generated = await generateReferenceWithVariation(updatedPrompt, rerollCount);
+          imageUrl = generated.url;
+          await ctx.replyWithPhoto(imageUrl, {
+            caption: "how about now? is this closer to what you wanted? 💕",
+          });
+          didTweak = true;
+        } catch {
+          await ctx.reply("failed to adjust... want to try again or keep the current one?");
+        }
+      }
+
+      if (didTweak) continue;
+
+      if (shouldReroll(response)) {
+        if (!env.FREE_MODE) {
+          const balance = await convex.getBalance(telegramId);
+          if (balance < CREDIT_COSTS.IMAGE_PRO) {
+            await ctx.reply(
+              `Not enough credits to reroll. Required: ${CREDIT_COSTS.IMAGE_PRO}, current: ${balance}.`
+            );
+            continue;
+          }
+        }
+
+        rerollCount += 1;
+        await ctx.reply(pickRandom(REROLL_MESSAGES));
+        try {
+          const generated = await generateReferenceWithVariation(basePrompt, rerollCount);
+
+          if (!env.FREE_MODE) {
+            await convex.spendCredits({
+              telegramId,
+              amount: CREDIT_COSTS.IMAGE_PRO,
+              service: "fal.ai",
+              model: "flux-2-pro",
+              falCostUsd: 0.03,
+            });
+          }
+
+          imageUrl = generated.url;
+          await ctx.replyWithPhoto(imageUrl, {
+            caption: "updated sheet! better? 💕",
+          });
+        } catch {
+          await ctx.reply("Reroll failed. Want to keep this one?");
+        }
+        continue;
+      }
+
+      if (soundsLikeApproval(response)) {
+        break;
+      }
+
+      await ctx.reply("just tell me 'yes' if you love it, or tell me what to change! 💕");
+    }
+
+    await ctx.reply("sooo... are we doing this? 💕");
+
     while (true) {
       const response = await waitForTextMessage(conversation, ctx);
       history.push(`user: ${response}`);
@@ -1073,7 +1151,7 @@ export async function girlfriendSetup(conversation: SetupConversation, ctx: BotC
           await ctx.replyWithPhoto(imageUrl, {
             caption: `${buildDraftSummary(draft)}\n\nupdated preview.`,
           });
-          await ctx.reply("okay... this one or another reroll?");
+          await ctx.reply("better? or another reroll?");
         } catch {
           await ctx.reply("Reroll failed. Want to keep this one?");
         }
@@ -1081,23 +1159,33 @@ export async function girlfriendSetup(conversation: SetupConversation, ctx: BotC
       }
 
       if (soundsLikeApproval(response)) {
-        break;
-      }
-
-      await ctx.reply("if you want another, say 'reroll'. if you're good, say 'yes'.");
-    }
-
-    await ctx.reply("sooo... are we doing this? 💕", {
-      reply_markup: new InlineKeyboard().text("💞 yes, let's do this", "confirm:yes"),
-    });
-
-    while (true) {
-      const input = await conversation.waitFor(["callback_query:data", "message:text"]);
-      await ensureNotCancelled(input, ctx);
-
-      if (input.callbackQuery?.data === "confirm:yes") {
-        await answerCb(input);
         await convex.confirmProfile(telegramId, imageUrl);
+        
+        // Generate a FIRST REAL SELFIE to confirm she works in a scene
+        await ctx.reply("i love that you like it... hang on, let me send you a quick snap of me right now so you can see me for real 🫦");
+        
+        try {
+          const firstSelfieContext = "casual home selfie, smiling at camera, relaxed vibe";
+          const updatedDraft = prefsToSetupDraft(extracted);
+          // We need a profile-like object for buildSelfieSFW
+          const tempProfile = {
+            ...updatedDraft,
+            telegramId,
+            referenceImageUrl: imageUrl,
+            isConfirmed: true,
+          } as any;
+          
+          const selfiePrompt = buildSelfieSFW(tempProfile, firstSelfieContext);
+          const selfieResult = await generateReferenceWithVariation(selfiePrompt, 1); // Using this for simplicity or we could use editImage
+          
+          await ctx.replyWithPhoto(selfieResult.url, {
+            caption: "just took this... what do you think? i'm so excited to finally talk to you properly 💕",
+          });
+        } catch (err) {
+          console.error("First selfie failed:", err);
+          await ctx.reply("my camera glitched but i'm ready to talk now! 💕");
+        }
+
         await ctx.reply(
           "Profile confirmed.\n\nCommands:\n/selfie - request image\n/remake - rebuild profile\n/help - full command list"
         );
@@ -1106,20 +1194,17 @@ export async function girlfriendSetup(conversation: SetupConversation, ctx: BotC
         try {
           const bot = { api: ctx.api };
           startWelcomeSequence(bot, telegramId);
-          void checkAndRecordAutoEvent(convex, telegramId, "first_meet", {
-            source: "onboarding_complete",
-          });
+          void checkAndRecordAutoEvent(
+            telegramId,
+            "first_meet",
+            `You two met and started your story with ${draft.name}`
+          );
         } catch {}
 
         return;
       }
 
-      const text = input.message?.text;
-      if (text && soundsLikeApproval(text)) {
-        await ctx.reply("tap the confirm button so we can lock this in 💕");
-      } else {
-        await ctx.reply("tap the button when you're ready 💕");
-      }
+      await ctx.reply("i can't tell if you like it... just say 'yes' if we're good, or 'change it' if not 💕");
     }
   } catch (error) {
     if (error instanceof SetupCancelledError) {

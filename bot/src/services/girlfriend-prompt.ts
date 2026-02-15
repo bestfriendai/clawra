@@ -267,6 +267,9 @@ const NEGATIVE_PROMPTS = {
     "extra fingers, mutated hands, deformed, cross-eyed, lazy eye",
     "watermark, text, logo, signature, copyright, border, collage",
     "HDR, oversaturated, heavy vignette, orange-teal grade",
+    "makeup, lipstick, eyeliner, eyeshadow, foundation, blush",
+    "fake lighting, cinematic lighting, dramatic lighting",
+    "perfect hair, salon hair, styled hair",
   ].join(", "),
   sfw: [
     "AI generated, CGI, 3D render, illustration, cartoon, anime, digital painting",
@@ -319,33 +322,29 @@ export function getNegativePromptByUseCase(
 
 function getUniversalRealismSuffix(): string {
   const pool = [
-    "subsurface scattering, natural skin translucency",
-    "visible pores, micro-skin details, natural skin texture",
-    "natural catchlights in eyes, realistic eye reflections",
-    "slight natural asymmetry, authentic imperfections",
-    "no airbrushing, no beauty filter, unretouched",
-    "natural hair texture with flyaway strands",
-    "realistic skin grain and color variation",
-    "shot on iPhone 17 Pro Max, front camera selfie",
-    "casual amateur framing, slight tilt, not perfectly centered",
-    "natural depth of field, background slightly out of focus",
-    "phone camera noise grain, not studio-perfect",
-    "realistic skin imperfections, slight blemishes, natural beauty marks",
-    "authentic candid moment, not posed professionally",
-    "subsurface light scattering on skin, warm undertones",
-    "micro-skin texture, individual hair strands visible",
-    "slightly uneven ambient lighting",
-    "arm's-length selfie distance, close-up perspective",
-    "natural skin oil sheen, not matte foundation",
-    "soft phone flash catchlight in pupils",
+    "raw CMOS sensor data, authentic ISO noise in shadows",
+    "visible skin pores, vellus hair, natural skin oils",
+    "anisotropic specular highlights on skin and fabric",
+    "subsurface scattering with accurate skin translucency",
+    "natural lens breathing, slight corner softening",
+    "chromatic aberration on high-contrast edges",
+    "iPhone 17 Pro Max Photographic Style: Standard, unedited",
+    "Samsung Galaxy S26 Ultra Expert RAW aesthetic",
+    "shot at arm's length, natural wide-angle distortion",
+    "real-world color science, no digital over-sharpening",
+    "authentic candid framing, imperfect horizon line",
+    "micro-creases in skin and fabric, realistic texture detail",
+    "natural ambient light interaction, no studio fill",
+    "phone camera lens flare, authentic optical artifacts",
+    "low-light digital grain, realistic sensor performance",
   ];
   const shuffled = pool.sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, 5).join(", ");
+  return shuffled.slice(0, 6).join(", ");
 }
 
-// ── Reference Image Prompt (Initial Portrait) ──────────────────────────────
+// ── Reference Image Prompt (3x3 Character Grid) ──────────────────────────
 
-export function buildReferencePrompt(profile: {
+export function buildReferenceGridPrompt(profile: {
   age: number;
   race: string;
   bodyType: string;
@@ -358,67 +357,29 @@ export function buildReferencePrompt(profile: {
   const expression = PERSONALITY_EXPRESSION_MAP[personalityKey];
   const bodyDesc = getBodyDescription(profile.bodyType);
   const skinTone = getSkinToneForRace(profile.race);
-  const imperfectionSet = pickVariant([
-    "a tiny beauty mark on her left cheekbone, barely visible freckles across her nose bridge",
-    "a small scar on her chin from childhood, subtle asymmetry in her eyebrows",
-    "a few faint freckles on her cheeks, one ear slightly lower than the other",
-    "a tiny mole near her lip, slightly uneven eyeliner she didn't fix",
-    "faint under-eye circles she didn't fully conceal, a small birthmark on her neck",
-    "slightly chapped lower lip, a single flyaway hair she didn't notice",
-  ]);
-  const captureContext = pickVariant([
-    {
-      scene:
-        "a casual mirror selfie in her cramped apartment bathroom, harsh overhead vanity bulb casting unflattering shadows under her eyes, a toothbrush and half-squeezed face wash visible on the counter behind her",
-      framing: "phone held at chest height in one hand, slightly tilted, her other arm relaxed at her side, framed too tight on one side cutting off her elbow",
-      lighting: "single overhead bulb with no diffusion, warm and slightly yellow, one side of her face brighter than the other",
-    },
-    {
-      scene:
-        "sitting cross-legged on her unmade bed, afternoon light coming through cheap blinds casting uneven stripe shadows across the wall and her shoulder, rumpled sheets and a phone charger visible",
-      framing: "arm's-length selfie from slightly above, phone about 18 inches from her face, her chin tilted down a little, one shoulder higher than the other",
-      lighting: "window daylight from one side mixing with dim room light from the other, creating uneven exposure where the window side is blown out",
-    },
-    {
-      scene:
-        "standing in a narrow hallway with beige walls, fluorescent ceiling light buzzing above, a jacket hanging on a hook and shoes scattered on the floor behind her",
-      framing: "quick full-body mirror selfie before heading out, phone blocking part of her face, posture slightly slouched and natural, not posed",
-      lighting: "flat overhead fluorescent mixed with a sliver of daylight from a door crack, skin looks slightly washed out and greenish",
-    },
-    {
-      scene:
-        "in a coffee shop by a window, other customers blurred and partially visible, a half-drunk latte and crumpled napkin on the table edge",
-      framing: "one-handed selfie held low near the table, looking down at the camera, awkward angle showing more of her neck and chin than intended",
-      lighting: "bright window daylight blowing out the background while her face is correctly exposed, classic phone HDR look with haloing around her hair",
-    },
-  ]);
-
-  const outfitChoice = pickVariant([
-    "wearing a fitted t-shirt and jeans",
-    "wearing a cozy oversized hoodie and leggings",
-    "wearing a casual sundress",
-    "wearing a crop top and high-waisted jeans",
-    "wearing a tank top and shorts",
-    "wearing a sweater and skirt",
-    "wearing a blouse and jeans",
-    "wearing an off-shoulder top and jean shorts",
-  ]);
-
+  
   return [
-    `A casual smartphone selfie photo of a beautiful young ${profile.age}-year-old ${profile.race} female woman with ${skinTone} skin, feminine face, and a ${bodyDesc} feminine body.`,
-    `She is ${outfitChoice}, fully clothed.`,
-    `She has ${profile.hairColor} ${profile.hairStyle} hair${profile.eyeColor ? ` and ${profile.eyeColor.toLowerCase()} eyes` : ""}, not styled for a photo, a few strands out of place and slightly frizzy.`,
-    `${captureContext.scene}.`,
-    `${captureContext.framing}.`,
-    `${expression}.`,
-    `${imperfectionSet}.`,
-    `${captureContext.lighting}.`,
-    "Feminine soft facial features, feminine body shape. She is clearly a young woman, NOT a man, NOT masculine, NOT androgynous.",
-    "Skin has visible pores on the nose and cheeks, uneven tone around the jaw, slight shine on the forehead from natural oil.",
-    "The image has typical phone-camera problems: noticeable grain in the shadows, soft focus around the edges, slightly harsh contrast, and uneven white balance that runs warm.",
-    "She is FULLY CLOTHED. NOT nude, NOT naked, NOT shirtless, NOT topless, NOT lingerie, NOT swimsuit. Clothes must be clearly visible.",
-    "This looks like it came from someone's camera roll, not a photoshoot. Nothing about the composition is intentional or flattering.",
+    `A professional 3x3 character reference sheet grid of a real young ${profile.age}-year-old ${profile.race} woman.`,
+    `Consistent character across all 9 frames. ${skinTone} skin, ${profile.hairColor} ${profile.hairStyle} hair${profile.eyeColor ? ` and ${profile.eyeColor.toLowerCase()} eyes` : ""}, ${bodyDesc}.`,
+    "Grid Layout: Top-left frame is a raw close-up face portrait with natural skin texture and clear eye detail.",
+    "Other 8 frames show various candid angles: full body standing, side profile, sitting naturally, and 3/4 views.",
+    "She is FULLY CLOTHED in a simple casual outfit (e.g., white tee and jeans). No nudity, no lingerie.",
+    "Raw CMOS sensor data, unfiltered smartphone optics, natural anisotropic reflection on skin and fabric.",
+    "Visible skin pores, vellus hair, and authentic imperfections. NOT a professional photoshoot. NO beauty filter.",
+    "Feminine features. Realistic fabric with wrinkles. Unpolished, authentic, and alive character study.",
   ].join(" ");
+}
+
+export function buildReferencePrompt(profile: {
+  age: number;
+  race: string;
+  bodyType: string;
+  hairColor: string;
+  hairStyle: string;
+  eyeColor?: string;
+  personality: string;
+}): string {
+  return buildReferenceGridPrompt(profile);
 }
 
 function getSkinToneForRace(race: string): string {
@@ -541,7 +502,7 @@ export function buildSelfieSFW(
   // Each section serves one purpose — no redundant realism stacking
   const promptParts = [
     // 1. Identity anchor (who she is)
-    `Candid phone selfie of the same ${profile.race} woman from the reference photo. ${skinTone} skin, ${profile.hairColor} ${profile.hairStyle} hair${eyeDesc}, ${profile.bodyType} build.`,
+    `Candid phone selfie of the same ${profile.race} woman from the reference photo. Match the raw, unpolished, non-studio aesthetic of the reference exactly. ${skinTone} skin, ${profile.hairColor} ${profile.hairStyle} hair${eyeDesc}, ${profile.bodyType} build.`,
     // 2. Scene (what's happening)
     `${scenario}.`,
     environmentContext,
@@ -592,7 +553,7 @@ export function buildSelfieNSFW(
   // Consolidated — previous version said "natural proportions" 3x and "not AI" 3x
   const promptParts = [
     // 1. Identity
-    `Real amateur photo of the same ${profile.race} woman from the reference. ${skinTone} skin, ${profile.hairColor} ${profile.hairStyle} hair${nsfwEyeDesc}.`,
+    `Real amateur photo of the same ${profile.race} woman from the reference. Match the raw, unpolished, non-studio aesthetic of the reference exactly. ${skinTone} skin, ${profile.hairColor} ${profile.hairStyle} hair${nsfwEyeDesc}.`,
     // 2. Body type (one statement, not three overlapping ones)
     bodyPreservation,
     // 3. Scene and action
@@ -668,12 +629,12 @@ export function buildGoodMorningPhotoPrompt(profile: GirlfriendProfile): string 
   const scene = pickVariant(morningScenes);
 
   return [
-    `A candid smartphone selfie taken first thing in the morning. The subject is ${base}.`,
+    `A raw, candid smartphone selfie taken first thing in the morning. The subject is the same woman from the reference photo, matching her raw, unpolished aesthetic exactly.`,
     `${scene.setting}.`,
     `${scene.hair}. ${scene.outfit}.`,
     `${scene.expression}. ${scene.pose}.`,
     `Bare face with no makeup, visible pores, slight under-eye puffiness from sleep, natural skin with pillow creases.`,
-    `Shot on iPhone 17 Pro Max front camera, slightly overexposed from morning light, casual amateur quality.`,
+    `Shot on iPhone 17 Pro Max front camera, slightly overexposed from morning light, casual amateur quality, noticeable digital noise.`,
     `${realism}.`,
   ].join(" ");
 }
@@ -716,12 +677,12 @@ export function buildGoodnightPhotoPrompt(profile: GirlfriendProfile): string {
   const scene = pickVariant(nightScenes);
 
   return [
-    `A candid smartphone selfie taken at bedtime. The subject is ${base}.`,
+    `A raw, candid smartphone selfie taken at bedtime. The subject is the same woman from the reference photo, matching her raw, unpolished aesthetic exactly.`,
     `${scene.setting}.`,
     `${scene.hair}. ${scene.outfit}.`,
     `${scene.expression}. ${scene.pose}.`,
     `Natural skin with end-of-day slight tiredness, slightly flushed cheeks, no makeup or minimal residual makeup.`,
-    `Low-light phone camera quality, warm color cast, slight noise grain, soft shadow falloff, intimate close atmosphere.`,
+    `Low-light phone camera quality, warm color cast, slight noise grain, soft shadow falloff, intimate close atmosphere, authentic handheld blur.`,
     `${realism}.`,
   ].join(" ");
 }
@@ -1515,7 +1476,8 @@ HARD RULES:
 - If he sounds in emotional crisis, prioritize safety and encourage immediate human support.
 
 OUTPUT FORMAT:
-One single plain text message. No ||| separators. No formatting.`;
+One single plain text message. No ||| separators. No formatting.
+If intent is "voice_leak", append [VOICE: sound description] at the end. Example: "you're so dumb lol [VOICE: giggling]"`;
 }
 
 export async function buildSystemPromptWithInsideJokes(

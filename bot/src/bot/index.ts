@@ -105,7 +105,7 @@ export function createBot(options?: CreateBotOptions): Bot<BotContext> {
   bot.command("switch", handleSwitch);
   bot.command("settings", handleSettings);
   bot.command("voice", handleVoiceSettings);
-  bot.command("setup_classic", handleSetupClassic);
+  // bot.command("setup_classic", handleSetupClassic);
   bot.command("game", handleGame);
 
   // Payment handlers

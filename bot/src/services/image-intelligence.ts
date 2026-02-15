@@ -14,59 +14,58 @@ const SCENE_TYPES = [
 type SceneType = typeof SCENE_TYPES[number];
 
 const LIGHTING_TERMS = [
+  "natural window light",
+  "harsh overhead light",
+  "dim bedside lamp",
+  "screen glow",
   "golden hour",
-  "rim light",
-  "softbox",
-  "lamplight",
-  "window light",
-  "low-key",
-  "backlit",
-  "sunset glow",
-  "studio lighting",
-  "cinematic lighting",
+  "streetlamp light",
+  "fluorescent ceiling light",
+  "uneven ambient light",
+  "mixed lighting",
+  "soft morning sun",
 ];
 
 const CAMERA_TERMS = [
-  "85mm",
-  "50mm",
-  "35mm",
-  "f/1.4",
-  "f/1.8",
-  "f/2.8",
-  "canon",
-  "sony",
-  "nikon",
-  "bokeh",
+  "smartphone",
+  "front-facing camera",
+  "selfie camera",
+  "phone lens",
+  "handheld",
+  "wide-angle lens",
+  "digital noise",
+  "lens flare",
+  "slight motion blur",
   "depth of field",
   "raw photo",
 ];
 
 const SKIN_TERMS = [
-  "subsurface scattering",
   "visible pores",
   "skin texture",
-  "micro-skin details",
   "natural skin translucency",
   "skin grain",
+  "slight blemishes",
+  "natural skin oils",
 ];
 
 const COMPOSITION_TERMS = [
-  "rule of thirds",
-  "leading lines",
-  "shallow depth of field",
-  "off-center composition",
+  "casual framing",
+  "slightly tilted horizon",
+  "off-center",
+  "arm's-length perspective",
   "portrait orientation",
-  "negative space",
+  "background clutter",
 ];
 
 const REALISM_TERMS = [
-  "photorealistic",
-  "hyperrealistic",
-  "8k",
-  "raw photo",
+  "unfiltered",
+  "raw",
+  "candid",
   "unedited",
-  "lifelike",
-  "realistic",
+  "authentic",
+  "non-professional",
+  "random snap",
 ];
 
 const IMPERFECTION_TERMS = [

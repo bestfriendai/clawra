@@ -8,7 +8,8 @@ export type PlannerIntent =
   | "clarify"
   | "support"
   | "sexual_pacing"
-  | "grounding";
+  | "grounding"
+  | "voice_leak";
 
 export interface ResponsePlanInput {
   userMessage: string;
@@ -93,6 +94,19 @@ export function buildResponsePlan(input: ResponsePlanInput): ResponsePlan {
   }
 
   if (input.userEmotion === "playful" || input.userEmotion === "happy" || input.userEmotion === "excited") {
+    // 10% chance of voice leak in high intimacy stages
+    if ((stage === "intimate" || stage === "obsessed") && Math.random() < 0.1) {
+      return {
+        intent: "voice_leak",
+        tone: "playful, spontaneous, intimate",
+        responseShape: "attune_then_advance",
+        includeMemoryCallback: false,
+        includeQuestion: false,
+        sexualPacingRule: "no forced escalation",
+        safetyPriority: "keep it grounded",
+      };
+    }
+
     return {
       intent: "playful",
       tone: "light, responsive, witty",

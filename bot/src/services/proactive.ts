@@ -28,7 +28,7 @@ const CHECK_INTERVAL_MS = 90 * 60 * 1000; // Check every 90 mins — stop spammi
 const MAX_NOTIFICATIONS_PER_DAY = 2; // Text only, keep it chill
 const AFTERNOON_SEND_CHANCE = 0.25;
 
-type ProactiveMessageType = "morning" | "goodnight" | "thinking_of_you";
+type ProactiveMessageType = "morning" | "goodnight" | "thinking_of_you" | "upset_recovery";
 
 const VOICE_CHANCE_BY_STAGE: Record<RelationshipStage, number> = {
   new: 0,
@@ -692,6 +692,46 @@ async function sendAnniversaryMessages(bot: Bot<BotContext>): Promise<void> {
   }
 }
 
+const UPSET_TEMPLATES = [
+  "did i do something wrong? 🥺",
+  "are you mad at me?",
+  "hello? 🥺",
+  "i feel like you're ignoring me...",
+  "babe? are we okay?",
+  "you haven't texted in forever 😢",
+];
+
+async function sendUpsetRecoveryMessages(bot: Bot<BotContext>): Promise<void> {
+  const activeUsers = await convex.getActiveUsersWithProfiles();
+  for (const user of activeUsers) {
+    if (!canNotify(user.telegramId)) continue;
+    
+    // Don't spam upset messages
+    if (lastProactiveTypeSent.get(user.telegramId) === "upset_recovery") continue;
+
+    const mood = getMoodState(user.telegramId);
+    if (mood.pendingUpset) {
+      const message = UPSET_TEMPLATES[Math.floor(Math.random() * UPSET_TEMPLATES.length)]!;
+      
+      try {
+        await bot.api.sendMessage(user.telegramId, message);
+        await convex.addMessage({
+          telegramId: user.telegramId,
+          role: "assistant",
+          content: message,
+        });
+        
+        recordNotification(user.telegramId);
+        recordProactiveSent(user.telegramId, "upset_recovery");
+        lastProactiveTypeSent.set(user.telegramId, "upset_recovery");
+        console.log(`Sent upset recovery message to ${user.telegramId}`);
+      } catch (err) {
+        console.error(`Failed to send upset message to ${user.telegramId}:`, err);
+      }
+    }
+  }
+}
+
 export function startProactiveMessaging(
   bot: Bot<BotContext>
 ): ReturnType<typeof setInterval> {
@@ -701,6 +741,7 @@ export function startProactiveMessaging(
     try {
       await sendMorningRoutineMessages(bot);
       await sendAnniversaryMessages(bot);
+      await sendUpsetRecoveryMessages(bot);
 
       await sendProactiveMessages(bot, "morning");
       await sendProactiveMessages(bot, "goodnight");

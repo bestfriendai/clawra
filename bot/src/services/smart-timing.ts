@@ -13,6 +13,7 @@ export type SmartMessageType =
   | "morning"
   | "goodnight"
   | "thinking_of_you"
+  | "upset_recovery"
   | "proactive_photo";
 
 export const TIMEZONE_ABBREVIATIONS: Record<string, number> = {

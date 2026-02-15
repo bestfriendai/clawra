@@ -179,9 +179,11 @@ export async function generateReferenceImage(
           prompt: safePrompt,
           num_images: 1,
           output_format: "jpeg",
-          image_size: { width: 768, height: 1344 },
+          image_size: "square_hd",
           safety_tolerance: "2",
           enable_safety_checker: true,
+          guidance_scale: 3.0,
+          num_inference_steps: 35,
         } as any,
       }),
       "generate reference image (flux-2-pro)"

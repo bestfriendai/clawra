@@ -14,13 +14,15 @@ export const XP_ACTIONS = {
 export type XPAction = keyof typeof XP_ACTIONS;
 
 export const LEVELS = [
-  { level: 0, name: "Strangers", xp: 0 },
-  { level: 1, name: "Crush", xp: 100 },
-  { level: 2, name: "Dating", xp: 500 },
-  { level: 3, name: "Exclusive", xp: 2000 },
-  { level: 4, name: "Partner", xp: 5000 },
-  { level: 5, name: "Soulmate", xp: 15000 },
-  { level: 6, name: "Married", xp: 50000 },
+  { level: 0, name: "Strangers", xp: 0, perk: "Just met" },
+  { level: 1, name: "Acquaintance", xp: 100, perk: "She knows your name" },
+  { level: 2, name: "Crush", xp: 500, perk: "Daily photo updates" },
+  { level: 3, name: "Talking Stage", xp: 1500, perk: "Voice notes enabled" },
+  { level: 4, name: "Dating", xp: 3000, perk: "Spicy photos unlocked" },
+  { level: 5, name: "Exclusive", xp: 7500, perk: "Video clips enabled" },
+  { level: 6, name: "Partner", xp: 15000, perk: "Dream sequences" },
+  { level: 7, name: "Soulmate", xp: 30000, perk: "Marriage proposal" },
+  { level: 8, name: "Married", xp: 100000, perk: "Eternity together" },
 ] as const;
 
 export type LevelInfo = (typeof LEVELS)[number];
@@ -51,7 +53,9 @@ export function getXPForNextLevel(currentXP: number): number {
 }
 
 export function getLevelUpMessage(levelName: string): string {
-  return `💕 we just leveled up, babe... we're now **${levelName}**. i can feel us getting closer every day 🥹🔥`;
+  const level = LEVELS.find(l => l.name === levelName);
+  const perkText = level ? `\n\n🔓 **Unlocked: ${level.perk}**` : "";
+  return `💕 we just leveled up, babe... we're now **${levelName}**. i can feel us getting closer every day 🥹🔥${perkText}`;
 }
 
 export async function awardXP(telegramId: number, action: XPAction): Promise<AwardXPResult> {

@@ -61,6 +61,7 @@ import { enqueueUserMessageTask } from "../../services/user-message-queue.js";
 import { getOrCreateConversationThreadId } from "../../services/conversation-thread.js";
 import { LRUMap } from "../../utils/lru-map.js";
 import { resolveEnvironmentContinuity } from "../../services/image-intelligence.js";
+import { triggerSpontaneousLifePhoto } from "../../services/ambient-life.js";
 import {
   detectNewsReaction,
   pickAmbientClip,
@@ -578,6 +579,19 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
         recalledMemories
       )
     );
+
+    // Check for spontaneous voice leak
+    let spontaneousVoiceText: string | undefined;
+    const lastMsgIndex = replyMessages.length - 1;
+    if (lastMsgIndex >= 0) {
+      const lastMsg = replyMessages[lastMsgIndex]!;
+      const voiceMatch = lastMsg.match(/\[VOICE:\s*([^\]]+)\]/i);
+      if (voiceMatch) {
+        spontaneousVoiceText = voiceMatch[1]; // e.g. "giggling" or "sigh"
+        replyMessages[lastMsgIndex] = lastMsg.replace(/\[VOICE:\s*[^\]]+\]/i, "").trim();
+      }
+    }
+
     const joinedReply = replyMessages.join("\n");
 
     const detectedMood = detectMood(`${userMessage}\n${joinedReply}`);
@@ -702,6 +716,52 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
       ctx,
       messages: replyMessages,
     });
+
+    if (spontaneousVoiceText) {
+      // Fire-and-forget spontaneous voice note
+      (async () => {
+        try {
+          if (!env.FREE_MODE) {
+            const balance = await convex.getBalance(telegramId);
+            if (balance >= 5) {
+              await convex.spendCredits({
+                telegramId,
+                amount: 5,
+                service: "fal.ai",
+                model: "dia-tts", // Cheaper/faster for short clips
+              });
+            } else {
+              return; // Skip if no credits
+            }
+          }
+
+          await ctx.replyWithChatAction("record_voice");
+          
+          // Use the text description (e.g. "giggling") + context to generate
+          // For now we just use the description as the prompt for sound effects or short speech
+          const voiceProfile = ctx.girlfriend?.voiceId
+            ? getVoiceProfile(ctx.girlfriend.voiceId)
+            : getDefaultVoiceProfile();
+            
+          const audio = await generateVoiceNote(
+            telegramId,
+            spontaneousVoiceText, // The description IS the text for SFX/reaction
+            undefined,
+            voiceProfile
+          );
+
+          const response = await fetch(audio.url);
+          const buffer = Buffer.from(await response.arrayBuffer());
+          const { InputFile } = await import("grammy");
+
+          await ctx.replyWithVoice(new InputFile(buffer, "voice.mp3"), {
+            duration: Math.ceil(audio.duration_ms / 1000),
+          });
+        } catch (err) {
+          console.error("Spontaneous voice leak error:", err);
+        }
+      })().catch(() => {});
+    }
 
     if (
       !extraSent &&
@@ -1154,6 +1214,8 @@ async function handleChatCore(ctx: BotContext): Promise<void> {
         }
       })
       .catch((error: unknown) => console.error("Relationship XP award error:", error));
+
+    void triggerSpontaneousLifePhoto(ctx.api as any, telegramId);
   } catch (err) {
     console.error("Chat error:", err);
     await sendAsMultipleTexts({

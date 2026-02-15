@@ -48,6 +48,30 @@ export const AMBIENT_CLIPS: AmbientClipConfig[] = [
     probability: 0.05,
     moodAffinity: ["excited", "happy", "playful"],
   },
+  {
+    type: "background",
+    textPrompt: "*sound of wind and birds in the background*",
+    probability: 0.02,
+    moodAffinity: ["happy", "casual"],
+  },
+  {
+    type: "giggle",
+    textPrompt: "*caught off guard laugh*",
+    probability: 0.04,
+    moodAffinity: ["playful", "flirty"],
+  },
+  {
+    type: "sigh",
+    textPrompt: "*yawning* ugh i'm so sleepy",
+    probability: 0.04,
+    moodAffinity: ["tired", "night"],
+  },
+  {
+    type: "giggle",
+    textPrompt: "*muffled laughing*",
+    probability: 0.03,
+    moodAffinity: ["playful", "happy"],
+  },
 ];
 
 export const REACTION_CLIPS: Record<NewsReaction, ReactionClipConfig> = {

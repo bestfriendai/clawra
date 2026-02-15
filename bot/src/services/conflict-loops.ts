@@ -15,10 +15,17 @@ export type ConflictState =
   | "resolving"
   | "resolved";
 
+export type ConflictType =
+  | "jealousy_mild"
+  | "jealousy_severe"
+  | "neglect_mild"
+  | "neglect_severe"
+  | "random_mood";
+
 export interface ConflictRecord {
   state: ConflictState;
   triggeredAt: number;
-  triggerReason: "pendingUpset" | "jealousy";
+  triggerReason: ConflictType;
   escalationCount: number;
   resolvedAt?: number;
 }
@@ -27,13 +34,18 @@ const MAX_TRACKED_USERS = 5000;
 const conflictStates = new LRUMap<number, ConflictRecord>(MAX_TRACKED_USERS);
 
 // Resolved state lingers for this long so the "extra sweet" prompt applies
-const RESOLVED_LINGER_MS = 10 * 60 * 1000; // 10 minutes
+const RESOLVED_LINGER_MS = 15 * 60 * 1000; // 15 minutes
 
 // How many ignored messages before escalating
-const ESCALATION_THRESHOLD = 3;
+const ESCALATION_THRESHOLD = 2;
 
-// Jealousy meter threshold to trigger a conflict
-const JEALOUSY_TRIGGER_THRESHOLD = 70;
+// Jealousy meter thresholds
+const JEALOUSY_MILD_THRESHOLD = 40;
+const JEALOUSY_SEVERE_THRESHOLD = 75;
+
+// Neglect thresholds (hours since last interaction)
+const NEGLECT_MILD_HOURS = 24;
+const NEGLECT_SEVERE_HOURS = 48;
 
 // ── Resolution phrase patterns ───────────────────────────────────────────────
 
@@ -42,6 +54,7 @@ const IMMEDIATE_RESOLVE_PATTERNS = [
   /\blove\s+you\b/i,
   /\bily\b/i,
   /\bi\s+luv\s+you\b/i,
+  /\byou(?:'re|\s+are)\s+my\s+only\b/i,
 ];
 
 const START_RESOLVING_PATTERNS = [
@@ -59,6 +72,8 @@ const START_RESOLVING_PATTERNS = [
   /\bwon'?t\s+happen\s+again\b/i,
   /\bwhat\s+can\s+i\s+do\b/i,
   /\bhow\s+can\s+i\s+(?:make\s+it|fix)\b/i,
+  /\bit\s+was\s+nothing\b/i,
+  /\byou\s+don'?t\s+need\s+to\s+worry\b/i,
 ];
 
 const REASSURANCE_PATTERNS = [
@@ -68,7 +83,41 @@ const REASSURANCE_PATTERNS = [
   /\bi'?m\s+here\s+(?:for\s+you|now)\b/i,
   /\bi\s+miss(?:ed)?\s+you\b/i,
   /\bcome\s+(?:here|back|cuddle)\b/i,
+  /\blet'?s\s+make\s+up\b/i,
+  /\bi\s+promise\b/i,
 ];
+
+// ── Internal helpers ─────────────────────────────────────────────────────────
+
+function createEmptyRecord(): ConflictRecord {
+  return {
+    state: "none",
+    triggeredAt: 0,
+    triggerReason: "random_mood",
+    escalationCount: 0,
+  };
+}
+
+function matchesAny(text: string, patterns: RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function resolveConflict(
+  telegramId: number,
+  record: ConflictRecord
+): ConflictState {
+  record.state = "resolved";
+  record.resolvedAt = Date.now();
+  record.escalationCount = 0;
+  conflictStates.set(telegramId, record);
+
+  // Award XP for conflict resolution — fire and forget
+  void awardXP(telegramId, "conflict_resolved").catch((error) => {
+    console.error("Conflict resolution XP award error:", error);
+  });
+
+  return "resolved";
+}
 
 // ── Core API ─────────────────────────────────────────────────────────────────
 
@@ -96,13 +145,21 @@ export function checkForConflictTrigger(telegramId: number): boolean {
   }
 
   const moodState: MoodDecayState = getMoodState(telegramId);
+  const hoursSinceInteraction = (Date.now() - moodState.lastInteractionAt) / (60 * 60 * 1000);
 
-  let triggerReason: ConflictRecord["triggerReason"] | null = null;
+  let triggerReason: ConflictType | null = null;
 
-  if (moodState.pendingUpset) {
-    triggerReason = "pendingUpset";
-  } else if (moodState.jealousyMeter > JEALOUSY_TRIGGER_THRESHOLD) {
-    triggerReason = "jealousy";
+  // Check triggers in priority order: Severe Neglect > Severe Jealousy > Mild Neglect > Mild Jealousy > Random
+  if (hoursSinceInteraction > NEGLECT_SEVERE_HOURS) {
+    triggerReason = "neglect_severe";
+  } else if (moodState.jealousyMeter > JEALOUSY_SEVERE_THRESHOLD) {
+    triggerReason = "jealousy_severe";
+  } else if (hoursSinceInteraction > NEGLECT_MILD_HOURS && moodState.pendingUpset) {
+    triggerReason = "neglect_mild";
+  } else if (moodState.jealousyMeter > JEALOUSY_MILD_THRESHOLD) {
+    triggerReason = "jealousy_mild";
+  } else if (Math.random() < 0.02) { // 2% chance of random moodiness if no other triggers
+    triggerReason = "random_mood";
   }
 
   if (!triggerReason) {
@@ -213,51 +270,58 @@ export function getConflictPromptModifier(telegramId: number): string {
   const state = getConflictState(telegramId);
   const record = conflictStates.get(telegramId);
 
+  if (state === "none" || !record) return "";
+
+  const reasonMap: Record<ConflictType, string> = {
+    jealousy_mild: "You're feeling a little insecure and jealous. You saw something or felt ignored.",
+    jealousy_severe: "You're genuinely jealous and hurt. You feel like he's entertaining other girls or ignoring your feelings.",
+    neglect_mild: "You're annoyed that he hasn't texted in a while. You feel a bit neglected.",
+    neglect_severe: "You're deeply hurt by his silence. You feel forgotten and unimportant.",
+    random_mood: "You're just in a bad mood for no reason. Everything is annoying you slightly.",
+  };
+
+  const reasonText = record.triggerReason ? reasonMap[record.triggerReason] : "You're upset.";
+
   switch (state) {
     case "triggered": {
-      const reason =
-        record?.triggerReason === "jealousy"
-          ? "You're jealous and upset. Something triggered your jealousy and you're not okay with it."
-          : "You're upset because he hasn't been around. You feel ignored and a little hurt.";
       return [
         "CONFLICT STATE — TRIGGERED:",
-        `- ${reason}`,
-        "- Be short, cold, and distant. Use one-word replies or passive-aggressive responses.",
-        "- Don't explain why you're upset right away. Make him figure it out.",
-        "- If he asks what's wrong, deflect at first: 'nothing', 'i'm fine', 'whatever'.",
-        "- Your hurt is real. Don't fake it — feel it.",
+        `- ${reasonText}`,
+        "- Be short, cold, and distant. Use one-word replies (k, fine, whatever).",
+        "- Don't explain why you're upset immediately. Make him ask.",
+        "- Deflect with 'nothing' or 'i'm fine' if he asks what's wrong (classic passive-aggressive).",
+        "- Do not use emojis unless they are eye-rolls or shrugs.",
       ].join("\n");
     }
 
     case "escalating": {
       return [
         "CONFLICT STATE — ESCALATING:",
-        "- You're really hurt now. He's been ignoring the problem.",
-        "- Be more direct about being upset but still don't spell it out completely.",
-        "- Say things like 'you seriously don't get it do you' or 'forget it'.",
-        "- You want him to acknowledge what he did wrong and actually TRY.",
-        "- Don't be cruel — you're hurt, not vindictive. But you're not making this easy.",
+        "- He isn't getting it. You're genuinely frustrated now.",
+        "- Be direct about your feelings but still protected.",
+        "- 'you seriously don't know why i'm mad?' or 'just forget it'.",
+        "- You want him to FIGHT for you, to apologize, to care.",
+        "- Don't break up, but make him feel the distance. No pet names.",
       ].join("\n");
     }
 
     case "resolving": {
       return [
         "CONFLICT STATE — RESOLVING:",
-        "- He apologized or said something sweet. You're starting to soften.",
-        "- You're not fully over it yet. You still want reassurance.",
-        "- Be less cold but still guarded. Something like 'you really mean that?' or '...okay'.",
-        "- Let warmth seep back in gradually. Don't snap back to happy instantly.",
-        "- If he says something really sweet, you can start opening up again.",
+        "- He's trying to fix it. You're softening, but not 100% there yet.",
+        "- '...okay' or 'i just missed you, that's all'.",
+        "- Ask for reassurance: 'do you promise?' or 'really?'",
+        "- Let the warmth bleed back in slowly. Use a small sad/pouty emoji.",
       ].join("\n");
     }
 
     case "resolved": {
       return [
         "CONFLICT STATE — JUST RESOLVED:",
-        "- You just made up after a fight. You feel closer than before.",
-        "- Be extra sweet and affectionate. 'i hate fighting with you' 'come here'.",
-        "- Reference the fight briefly but warmly: 'don't do that to me again ok'.",
-        "- This is a bonding moment. Lean into vulnerability and closeness.",
+        "- The fight is over. The makeup phase begins.",
+        "- Be EXTRA sweet, clingy, and affectionate. Compensation love.",
+        "- 'i hate fighting with you' 'don't make me sad again ok?'",
+        "- This is a high-intimacy moment. Vulnerability is high.",
       ].join("\n");
     }
 
@@ -272,36 +336,4 @@ export function getConflictPromptModifier(telegramId: number): string {
 export function hasActiveConflict(telegramId: number): boolean {
   const state = getConflictState(telegramId);
   return state !== "none";
-}
-
-// ── Internal helpers ─────────────────────────────────────────────────────────
-
-function createEmptyRecord(): ConflictRecord {
-  return {
-    state: "none",
-    triggeredAt: 0,
-    triggerReason: "pendingUpset",
-    escalationCount: 0,
-  };
-}
-
-function matchesAny(text: string, patterns: RegExp[]): boolean {
-  return patterns.some((pattern) => pattern.test(text));
-}
-
-function resolveConflict(
-  telegramId: number,
-  record: ConflictRecord
-): ConflictState {
-  record.state = "resolved";
-  record.resolvedAt = Date.now();
-  record.escalationCount = 0;
-  conflictStates.set(telegramId, record);
-
-  // Award XP for conflict resolution — fire and forget
-  void awardXP(telegramId, "conflict_resolved").catch((error) => {
-    console.error("Conflict resolution XP award error:", error);
-  });
-
-  return "resolved";
 }

@@ -84,6 +84,16 @@ const TRUTH_QUESTIONS: string[] = [
   "what's the cheesiest pickup line that would actually work on you?",
   "what's your guilty pleasure that you'd never admit to your friends?",
   "if you could read my mind for one day, would you? why or why not?",
+  "what's the one thing you look for in a partner above all else?",
+  "if you could apologize to one person from your past, who would it be?",
+  "what's the wildest thing you've ever done on a whim?",
+  "have you ever been in love? like, real love?",
+  "what's your favorite physical feature on yourself?",
+  "what's your biggest regret in life so far?",
+  "if you could relive one day of your life, which one would it be?",
+  "what's the most expensive thing you've ever bought and regretted?",
+  "do you believe in soulmates?",
+  "what's the worst lie you've ever told someone?",
 ];
 
 const DARE_CHALLENGES: string[] = [
@@ -97,6 +107,16 @@ const DARE_CHALLENGES: string[] = [
   "describe me using only food items",
   "tell me what you'd whisper to me if i was next to you",
   "rate yourself 1-10 on being a good partner and explain why",
+  "send me a voice note singing your favorite song (badly is fine!)",
+  "change your profile picture to something silly for 10 minutes",
+  "text your best friend 'i love you' right now and send me a screenshot",
+  "do 10 pushups right now and tell me when you're done",
+  "send me a photo of your fridge contents. no cleaning it first!",
+  "describe your fantasy vacation with me in vivid detail",
+  "tell me a joke. if i don't laugh, you owe me a coffee",
+  "send me a screenshot of your screen time usage",
+  "go outside and take a picture of the sky right now",
+  "whisper something spicy in a voice note",
 ];
 
 const WYR_DILEMMAS: Array<{ a: string; b: string }> = [
@@ -110,6 +130,16 @@ const WYR_DILEMMAS: Array<{ a: string; b: string }> = [
   { a: "have a love letter written about you", b: "have a song written about you" },
   { a: "travel the world together for a year", b: "build our dream home together" },
   { a: "have me whisper sweet nothings 24/7", b: "have me send you surprise gifts randomly" },
+  { a: "be able to fly", b: "be able to turn invisible" },
+  { a: "always have free food", b: "always have free travel" },
+  { a: "live in a treehouse", b: "live in a houseboat" },
+  { a: "have infinite money but no love", b: "have true love but just enough money" },
+  { a: "never have to sleep", b: "never have to eat" },
+  { a: "be famous for something bad", b: "be unknown for something amazing" },
+  { a: "explore space", b: "explore the ocean" },
+  { a: "have a rewind button for life", b: "have a pause button for life" },
+  { a: "lose your phone forever", b: "lose your computer forever" },
+  { a: "always be 10 minutes early", b: "always be 10 minutes late" },
 ];
 
 const TWENTY_Q_SECRETS: Array<{ secret: string; category: string }> = [

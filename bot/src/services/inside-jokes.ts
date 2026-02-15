@@ -140,6 +140,39 @@ function getLatestByTrigger(records: JokeMemoryFact[]): Map<string, InsideJoke> 
   return new Map(Array.from(latest.entries()).map(([trigger, value]) => [trigger, value.joke]));
 }
 
+function getLevenshteinDistance(a: string, b: string): number {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  const matrix = Array.from({ length: b.length + 1 }, (_, i) => [i]);
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0]![j] = j;
+  }
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i]![j] = matrix[i - 1]![j - 1]!;
+      } else {
+        matrix[i]![j] = Math.min(
+          matrix[i - 1]![j - 1]! + 1,
+          matrix[i]![j - 1]! + 1,
+          matrix[i - 1]![j]! + 1
+        );
+      }
+    }
+  }
+
+  return matrix[b.length]![a.length]!;
+}
+
+function arePhrasesSimilar(a: string, b: string): boolean {
+  if (a === b) return true;
+  const distance = getLevenshteinDistance(a, b);
+  const maxLength = Math.max(a.length, b.length);
+  return distance / maxLength < 0.2; // 20% difference allowed
+}
+
 function detectRepeatedNgrams(recentMessages: MessageLike[]): NgramHit[] {
   const counts = new Map<string, number>();
   const firstSeenAt = new Map<string, number>();
@@ -161,7 +194,7 @@ function detectRepeatedNgrams(recentMessages: MessageLike[]): NgramHit[] {
 
     const seenInMessage = new Set<string>();
 
-    for (let size = 2; size <= 4; size += 1) {
+    for (let size = 2; size <= 5; size += 1) { // Increased max size to 5
       if (words.length < size) continue;
 
       for (let i = 0; i <= words.length - size; i += 1) {
@@ -172,22 +205,31 @@ function detectRepeatedNgrams(recentMessages: MessageLike[]): NgramHit[] {
         const phrase = phraseWords.join(" ");
         if (seenInMessage.has(phrase)) continue;
 
-        seenInMessage.add(phrase);
-        counts.set(phrase, (counts.get(phrase) || 0) + 1);
+        // Check for similar existing phrases to merge counts
+        let matchedPhrase = phrase;
+        for (const existingPhrase of counts.keys()) {
+          if (arePhrasesSimilar(phrase, existingPhrase)) {
+            matchedPhrase = existingPhrase;
+            break;
+          }
+        }
+
+        seenInMessage.add(matchedPhrase);
+        counts.set(matchedPhrase, (counts.get(matchedPhrase) || 0) + 1);
 
         const ts = toTimestamp(message, now - (recentMessages.length - index) * 1000);
-        if (!firstSeenAt.has(phrase)) {
-          firstSeenAt.set(phrase, ts);
-          firstSeenRole.set(phrase, message.role);
+        if (!firstSeenAt.has(matchedPhrase)) {
+          firstSeenAt.set(matchedPhrase, ts);
+          firstSeenRole.set(matchedPhrase, message.role);
         }
-        lastSeenAt.set(phrase, ts);
+        lastSeenAt.set(matchedPhrase, ts);
       }
     }
   });
 
   const rawHits: NgramHit[] = [];
   for (const [phrase, occurrences] of counts.entries()) {
-    if (occurrences < 3) continue;
+    if (occurrences < 3) continue; // Keep threshold at 3
 
     rawHits.push({
       phrase,

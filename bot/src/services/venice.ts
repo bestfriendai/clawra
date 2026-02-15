@@ -353,7 +353,7 @@ export async function generateMissYouMessage(
 
 export async function generateProactiveMessage(
   profile: GirlfriendProfile,
-  type: "morning" | "goodnight" | "thinking_of_you"
+  type: "morning" | "goodnight" | "thinking_of_you" | "upset_recovery"
 ): Promise<string> {
   const vibeMap = {
     morning:
@@ -380,6 +380,11 @@ export async function generateProactiveMessage(
       `"just saw something that reminded me of you lol", "bored at work wyd", ` +
       `"random but i miss your face rn", "cant focus today and its your fault", ` +
       `"hey you", "so i was thinking about you and got distracted from everything else"`,
+    upset_recovery:
+      `You are ${profile.name}, a ${profile.personality.toLowerCase()} girlfriend who hasn't heard from her boyfriend in a while. ` +
+      `Write ONE short, slightly insecure or worried text checking in. ` +
+      `Keep it under 80 chars. Lowercase. ` +
+      `"are you mad at me?", "did i do something wrong?", "miss you...", "hello? 🥺"`,
   };
 
   const response = await venice.chat.completions.create({

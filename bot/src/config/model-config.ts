@@ -102,7 +102,7 @@ export const QUALITY_CREDIT_COSTS = {
 } as const;
 
 const ZIMAGE_NEGATIVE_BASE =
-  "male, man, masculine, muscular man, male body, shirtless man, nude, naked, topless, shirtless, nsfw, lingerie, underwear, bikini, cleavage, exposed skin, exposed chest, bare chest, no shirt, sexually suggestive, AI generated, plastic skin, smooth skin, airbrushed, illustration, cartoon, 3D render, uncanny valley, wax figure, mannequin, doll-like, overly symmetrical face, blurry, distorted hands, extra fingers, deformed, professional photoshoot, studio lighting setup, ring light catchlights";
+  "male, man, masculine, muscular man, male body, shirtless man, nude, naked, topless, shirtless, nsfw, lingerie, underwear, bikini, cleavage, exposed skin, exposed chest, bare chest, no shirt, sexually suggestive, AI generated, plastic skin, smooth skin, airbrushed, illustration, cartoon, 3D render, uncanny valley, wax figure, mannequin, doll-like, overly symmetrical face, blurry, distorted hands, extra fingers, deformed, professional photoshoot, studio lighting setup, ring light catchlights, perfectly white teeth, plastic specular highlights, unnatural light bounce, symmetrical perfections";
 
 const ZIMAGE_NEGATIVE_EXTRAS = [
   "watermark, text overlay, logo, signature, copyright",
@@ -115,6 +115,8 @@ const ZIMAGE_NEGATIVE_EXTRAS = [
   "bokeh balls, lens flare, light leak overlay, sun flare effect",
   "unrealistic proportions, bolt-on implants, impossibly thin waist, exaggerated curves",
   "fashion runway, editorial photography, high fashion, glamour shot",
+  "unnatural skin sheen, porcelain texture, airbrushed hair, perfectly aligned strands",
+  "cgi lighting, raytraced reflections, digital makeup, artificial glow",
 ];
 
 export const ZIMAGE_NEGATIVE_PROMPT = ZIMAGE_NEGATIVE_BASE;
