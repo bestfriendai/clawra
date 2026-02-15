@@ -8,7 +8,6 @@ import { CREDIT_COSTS } from "../../config/pricing.js";
 import { env } from "../../config/env.js";
 import { getWaitingMessage } from "../../config/waiting-messages.js";
 import { getModerationResponse, isProhibitedContent } from "../../utils/moderation.js";
-import { getImageSeed } from "../../services/image-intelligence.js";
 import { getVoiceProfile } from "../../config/voice-profiles.js";
 import {
   getPosesByCategory,
@@ -106,6 +105,7 @@ function createEmotionalKeyboard(): InlineKeyboard {
 type GenerateSelfieOptions = {
   forceNsfw?: boolean;
   sendWaitingMessage?: boolean;
+  skipEnhancement?: boolean;
 };
 
 async function generateAndSendSelfie(
@@ -152,6 +152,11 @@ async function generateAndSendSelfie(
   }
   await ctx.replyWithChatAction("upload_photo");
 
+  // Keep the "uploading photo" indicator alive during generation (expires after 5s)
+  const chatActionInterval = setInterval(() => {
+    ctx.replyWithChatAction("upload_photo").catch(() => {});
+  }, 4000);
+
   try {
     const falCostUsd = nsfw ? 0.09 : 0.02;
     if (!env.FREE_MODE) {
@@ -164,18 +169,20 @@ async function generateAndSendSelfie(
       });
     }
 
-    // Enhance context with LLM for better intent capture on /selfie commands
+    // Skip LLM enhancement for callback-triggered selfies (context is already descriptive)
     let enrichedContext = context;
-    const enhanced = await enhancePromptWithLLM(context, ctx.girlfriend, "image");
-    if (enhanced?.scene) {
-      const parts: string[] = [];
-      if (enhanced.scene) parts.push(`setting: ${enhanced.scene}`);
-      if (enhanced.action) parts.push(`action: ${enhanced.action}`);
-      if (enhanced.outfit) parts.push(`outfit: ${enhanced.outfit}`);
-      if (enhanced.lighting) parts.push(`lighting: ${enhanced.lighting}`);
-      if (enhanced.mood) parts.push(`vibe: ${enhanced.mood}`);
-      parts.push(`user_request: ${context}`);
-      enrichedContext = parts.join("; ");
+    if (!options.skipEnhancement) {
+      const enhanced = await enhancePromptWithLLM(context, ctx.girlfriend, "image");
+      if (enhanced?.scene) {
+        const parts: string[] = [];
+        if (enhanced.scene) parts.push(`setting: ${enhanced.scene}`);
+        if (enhanced.action) parts.push(`action: ${enhanced.action}`);
+        if (enhanced.outfit) parts.push(`outfit: ${enhanced.outfit}`);
+        if (enhanced.lighting) parts.push(`lighting: ${enhanced.lighting}`);
+        if (enhanced.mood) parts.push(`vibe: ${enhanced.mood}`);
+        parts.push(`user_request: ${context}`);
+        enrichedContext = parts.join("; ");
+      }
     }
 
     const prompt = nsfw
@@ -197,7 +204,7 @@ async function generateAndSendSelfie(
       .saveImage(telegramId, result.url, prompt, nsfw ? "nsfw" : "selfie", nsfw)
       .catch((error) => console.error("Save image error:", error));
 
-    await convex.logUsage({
+    convex.logUsage({
       telegramId,
       service: "fal.ai",
       model: nsfw ? "hunyuan-v3-edit" : "grok-edit",
@@ -206,7 +213,7 @@ async function generateAndSendSelfie(
       falCostUsd,
       status: "success",
       resultUrl: result.url,
-    });
+    }).catch((error: unknown) => console.error("Log usage error:", error));
 
   } catch (err) {
     console.error("Selfie error:", err);
@@ -218,6 +225,8 @@ async function generateAndSendSelfie(
         env.FREE_MODE ? "" : " your credits were refunded."
       }`
     );
+  } finally {
+    clearInterval(chatActionInterval);
   }
 }
 
@@ -422,9 +431,10 @@ export async function handleSelfieCallback(ctx: BotContext) {
       return;
   }
 
-  await ctx.answerCallbackQuery();
+  await ctx.answerCallbackQuery({ text: "generating..." });
   await generateAndSendSelfie(ctx, context, {
     forceNsfw,
     sendWaitingMessage: false,
+    skipEnhancement: true,
   });
 }

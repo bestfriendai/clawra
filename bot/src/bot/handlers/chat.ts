@@ -122,11 +122,14 @@ const QUEUE_FULL_MESSAGE = "you're sending messages too fast for a second. i got
 
 function createPostImageKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("🔥 Another one", "selfie:another")
-    .text("😈 Spicier", "selfie:spicier")
+    .text("You look amazing", "react_amazing")
+    .text("Send another", "selfie:another")
+    .row()
+    .text("Something spicier?", "selfie:spicier")
+    .text("Send voice note", "voice_react")
     .row()
     .text("👗 Change outfit", "selfie:outfit")
-    .text("💋 More", "selfie:dismiss");
+    .text("💋 Dismiss", "selfie:dismiss");
 }
 
 const EMOTION_REACTIONS: Record<Mood, "😁" | "❤" | "🔥" | "👍" | "😢"> = {
